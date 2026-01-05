@@ -1,0 +1,52 @@
+name: Bug report
+description: Report a reproducible problem
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug.
+        Please do not include secrets or API keys.
+        Security issues must be reported via SECURITY.md.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched existing issues
+          required: true
+        - label: This is not a security report
+          required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: "e.g., main @ abc1234"
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Include expected vs actual behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. ... 2. ..."
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or output (redacted)
+      description: Remove secrets and tokens.
+      render: shell
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: "OS, Go version, DB/Redis versions, deployment"

@@ -1,0 +1,39 @@
+Penshort - Specialized URL Shortener for Developers (Go + PostgreSQL + Redis)
+
+### About project
+
+Mục tiêu sản phẩm
+
+- Không phải shortener chung chung; tập trung vào developer workflows: API keys, analytics, webhooks, rate limit, expire policies.
+
+Scope tính năng (Functional requirements)
+
+- Link management
+    - Create short link (custom alias tùy chọn)
+    - Redirect (301/302 theo cấu hình)
+    - Expire policies: theo thời gian; (tuỳ chọn) theo số click
+- Analytics
+    - Click events: timestamp, referrer, user-agent, country/region (tuỳ chọn), unique vs total
+    - API để query analytics theo link và theo thời gian
+- Webhooks
+    - Trigger khi click
+    - Signing để client verify
+    - Retry với backoff; lưu trạng thái delivery
+- Authentication & rate limiting
+    - API keys theo user/team
+    - Rate limit per API key (và/hoặc per IP cho redirect)
+- Admin/ops (tối thiểu)
+    - Health endpoints
+    - Basic dashboard hoặc admin endpoints (có thể để mức đơn giản)
+
+Non-functional requirements (để “production-ready” mức Q1)
+
+- Performance path redirect phải nhanh: cache Redis cho mapping short_code → destination.
+- Reliability: không mất dữ liệu click events; queue nội bộ (nếu cần) cho webhook dispatch.
+- Security baseline: không lộ API keys; log không chứa secrets.
+
+Deliverables/Evidence
+
+- Deployed công khai, có monitoring tối thiểu.
+- 10 users thật (hoặc API keys thật đang dùng).
+- 01 blog post: các trade-offs (Postgres vs Redis, rate limiting strategy, webhook reliability).
