@@ -2,7 +2,7 @@
 
 Penshort is a developer-focused URL shortener for API-first workflows. It is not a general-purpose consumer shortener.
 
-Status: Phase 0 OSS foundation only. Application code is not implemented yet.
+Status: Phase 1 service skeleton (config, health checks, logging, CI, Docker Compose).
 
 ## Project goals
 - Build a specialized shortener for developer workflows: API keys, analytics, webhooks, rate limits, and expiration policies.
@@ -34,13 +34,67 @@ Status: Phase 0 OSS foundation only. Application code is not implemented yet.
 - Milestone 4: Webhooks with signing and retries.
 - Milestone 5: Ops endpoints, monitoring basics, and delivery evidence.
 
-## Quickstart (placeholders)
-This section will be filled once application code lands.
-- Prerequisites: TBD
-- Local development: TBD
-- Configuration and environment variables: TBD
-- Migrations: TBD
-- Testing: TBD
+## Phase 1: Local development
+
+### Prerequisites
+- Go 1.22+
+- Docker + Docker Compose
+- `migrate` CLI (golang-migrate) for local migrations
+
+### Start services (Docker)
+```bash
+make up
+```
+
+Check endpoints:
+```bash
+curl -fsS http://localhost:8080/healthz
+curl -fsS http://localhost:8080/readyz
+```
+
+### Run API without Docker
+```bash
+cp .env.example .env
+make dev
+```
+
+### Configuration
+Required:
+- `DATABASE_URL` (PostgreSQL connection string)
+- `REDIS_URL` (Redis connection string)
+
+Optional:
+- `APP_ENV` (default: `development`)
+- `APP_PORT` (default: `8080`)
+- `LOG_LEVEL` (default: `info`)
+- `LOG_FORMAT` (default: `json`)
+- `READ_TIMEOUT` (default: `5s`)
+- `WRITE_TIMEOUT` (default: `10s`)
+- `SHUTDOWN_TIMEOUT` (default: `30s`)
+
+### Migrations
+```bash
+make migrate
+make migrate-down
+```
+
+### Testing
+```bash
+make test
+make lint
+```
+
+### Integration smoke test (local)
+```bash
+make up
+curl -fsS http://localhost:8080/healthz
+curl -fsS http://localhost:8080/readyz
+```
+
+### Trade-offs and TODOs (Phase 1)
+- Readiness checks validate connectivity only; schema-level checks come later.
+- Integration coverage is smoke-level; add migration + cache behavior tests in Phase 2.
+- Local migrations require the `migrate` CLI; consider a Dockerized migration target.
 
 ## Repository docs
 - [CONTRIBUTING.md](CONTRIBUTING.md) - how to propose changes and submit PRs.

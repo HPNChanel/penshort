@@ -4,7 +4,10 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/url"
 	"os"
+	"regexp"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -12,9 +15,11 @@ import (
 	"github.com/penshort/penshort/internal/cache"
 	"github.com/penshort/penshort/internal/config"
 	"github.com/penshort/penshort/internal/handler"
+	"github.com/penshort/penshort/internal/metrics"
 	"github.com/penshort/penshort/internal/middleware"
 	"github.com/penshort/penshort/internal/repository"
 	"github.com/penshort/penshort/internal/server"
+	"github.com/penshort/penshort/internal/service"
 )
 
 func main() {
@@ -34,7 +39,11 @@ func main() {
 	// Initialize database
 	repo, err := repository.New(ctx, cfg.DatabaseURL)
 	if err != nil {
-		logger.Error("failed to connect to database", "error", err)
+		logger.Error(
+			"failed to connect to database",
+			slog.String("error", sanitizeError(err, cfg.DatabaseURL)),
+			slog.String("database_url", redactURL(cfg.DatabaseURL)),
+		)
 		os.Exit(1)
 	}
 	defer repo.Close()
@@ -43,18 +52,28 @@ func main() {
 	// Initialize cache
 	cacheClient, err := cache.New(ctx, cfg.RedisURL)
 	if err != nil {
-		logger.Error("failed to connect to Redis", "error", err)
+		logger.Error(
+			"failed to connect to Redis",
+			slog.String("error", sanitizeError(err, cfg.RedisURL)),
+			slog.String("redis_url", redactURL(cfg.RedisURL)),
+		)
 		os.Exit(1)
 	}
 	defer cacheClient.Close()
 	logger.Info("connected to Redis")
 
+	// Initialize services
+	metricsRecorder := metrics.NewNoop()
+	linkService := service.NewLinkService(repo, cacheClient, cfg.BaseURL, metricsRecorder)
+
 	// Initialize handlers
 	h := handler.New()
 	healthHandler := handler.NewHealthHandler(repo, cacheClient)
+	linkHandler := handler.NewLinkHandler(linkService, logger)
+	redirectHandler := handler.NewRedirectHandler(linkService, logger)
 
 	// Setup router
-	r := setupRouter(h, healthHandler, logger)
+	r := setupRouter(h, healthHandler, linkHandler, redirectHandler, logger)
 
 	// Create and run server
 	srv := server.New(
@@ -66,6 +85,12 @@ func main() {
 		logger,
 	)
 
+	logger.Info("starting server",
+		"port", cfg.AppPort,
+		"base_url", cfg.BaseURL,
+		"env", cfg.AppEnv,
+	)
+
 	if err := srv.Run(); err != nil {
 		logger.Error("server error", "error", err)
 		os.Exit(1)
@@ -74,7 +99,7 @@ func main() {
 
 // initLogger initializes the slog logger based on configuration.
 func initLogger(cfg *config.Config) *slog.Logger {
-	var handler slog.Handler
+	var h slog.Handler
 
 	level := parseLogLevel(cfg.LogLevel)
 
@@ -83,12 +108,12 @@ func initLogger(cfg *config.Config) *slog.Logger {
 	}
 
 	if cfg.LogFormat == "json" {
-		handler = slog.NewJSONHandler(os.Stdout, opts)
+		h = slog.NewJSONHandler(os.Stdout, opts)
 	} else {
-		handler = slog.NewTextHandler(os.Stdout, opts)
+		h = slog.NewTextHandler(os.Stdout, opts)
 	}
 
-	logger := slog.New(handler)
+	logger := slog.New(h)
 	slog.SetDefault(logger)
 
 	return logger
@@ -111,7 +136,13 @@ func parseLogLevel(level string) slog.Level {
 }
 
 // setupRouter configures the chi router with all routes and middleware.
-func setupRouter(h *handler.Handler, healthHandler *handler.HealthHandler, logger *slog.Logger) *chi.Mux {
+func setupRouter(
+	h *handler.Handler,
+	healthHandler *handler.HealthHandler,
+	linkHandler *handler.LinkHandler,
+	redirectHandler *handler.RedirectHandler,
+	logger *slog.Logger,
+) *chi.Mux {
 	r := chi.NewRouter()
 
 	// Global middleware
@@ -124,12 +155,71 @@ func setupRouter(h *handler.Handler, healthHandler *handler.HealthHandler, logge
 	r.Get("/healthz", healthHandler.Healthz)
 	r.Get("/readyz", healthHandler.Readyz)
 
-	// API routes
+	// Root info endpoint
 	r.Get("/", h.Hello)
+
+	// API v1 routes
+	r.Route("/api/v1", func(r chi.Router) {
+		// Link management
+		r.Route("/links", func(r chi.Router) {
+			r.Post("/", linkHandler.Create)
+			r.Get("/", linkHandler.List)
+			r.Get("/{id}", linkHandler.Get)
+			r.Patch("/{id}", linkHandler.Update)
+			r.Delete("/{id}", linkHandler.Delete)
+		})
+	})
+
+	// Redirect handler (must be last to catch /{shortCode})
+	r.Get("/{shortCode}", redirectHandler.Redirect)
 
 	// 404 and 405 handlers
 	r.NotFound(h.NotFound)
 	r.MethodNotAllowed(h.MethodNotAllowed)
 
 	return r
+}
+
+var passwordPattern = regexp.MustCompile(`(?i)password=[^\s]+`)
+
+func redactURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "[redacted]"
+	}
+
+	if parsed.User != nil {
+		username := parsed.User.Username()
+		if username == "" {
+			parsed.User = url.User("redacted")
+		} else {
+			parsed.User = url.User(username)
+		}
+	}
+
+	return parsed.String()
+}
+
+func sanitizeError(err error, secrets ...string) string {
+	if err == nil {
+		return ""
+	}
+
+	msg := err.Error()
+	for _, secret := range secrets {
+		if secret == "" {
+			continue
+		}
+		redacted := redactURL(secret)
+		if redacted == "" {
+			redacted = "[redacted]"
+		}
+		msg = strings.ReplaceAll(msg, secret, redacted)
+	}
+
+	return passwordPattern.ReplaceAllString(msg, "password=redacted")
 }

@@ -102,6 +102,73 @@ jobs:
           name: api-binary
           path: bin/api
 
+  smoke:
+    name: Integration Smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start stack
+        run: docker compose up -d --build
+
+      - name: Wait for API readiness
+        run: |
+          for i in {1..30}; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/readyz || true)
+            if [ "$code" = "200" ]; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose logs api
+          exit 1
+
+      - name: Smoke health endpoints
+        run: |
+          curl -fsS http://localhost:8080/healthz > /dev/null
+          curl -fsS http://localhost:8080/readyz > /dev/null
+
+      - name: Readyz fails when Redis is down
+        run: |
+          docker compose stop redis
+          sleep 2
+          code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/readyz || true)
+          if [ "$code" != "503" ]; then
+            echo "expected 503 when redis down, got $code"
+            docker compose logs api
+            exit 1
+          fi
+          docker compose start redis
+          for i in {1..15}; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/readyz || true)
+            if [ "$code" = "200" ]; then
+              break
+            fi
+            sleep 2
+          done
+          if [ "$code" != "200" ]; then
+            echo "redis did not recover for readyz check"
+            docker compose logs api
+            exit 1
+          fi
+
+      - name: Readyz fails when Postgres is down
+        run: |
+          docker compose stop postgres
+          sleep 2
+          code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/readyz || true)
+          if [ "$code" != "503" ]; then
+            echo "expected 503 when postgres down, got $code"
+            docker compose logs api
+            exit 1
+          fi
+          docker compose start postgres
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
   security:
     name: Security Scan
     runs-on: ubuntu-latest

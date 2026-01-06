@@ -22,6 +22,9 @@ type Config struct {
 	// Cache (Redis)
 	RedisURL string `env:"REDIS_URL,required"`
 
+	// Base URL for short links (e.g., https://pen.sh)
+	BaseURL string `env:"BASE_URL" envDefault:"http://localhost:8080"`
+
 	// Logging
 	LogLevel  string `env:"LOG_LEVEL" envDefault:"info"`
 	LogFormat string `env:"LOG_FORMAT" envDefault:"json"`
