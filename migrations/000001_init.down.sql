@@ -1,0 +1,2 @@
+-- Rollback Phase 1 schema baseline
+-- Nothing to rollback as we only added a comment

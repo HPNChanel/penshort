@@ -1,0 +1,48 @@
+# Air - Live reload for Go apps
+# See: https://github.com/air-verse/air
+
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  # Build command
+  cmd = "go build -o ./tmp/api ./cmd/api"
+  # Binary to run
+  bin = "./tmp/api"
+  # Watch these extensions
+  include_ext = ["go", "tpl", "tmpl", "html"]
+  # Exclude directories
+  exclude_dir = ["tmp", "vendor", "testdata", "migrations", ".git"]
+  # Exclude files
+  exclude_file = []
+  # Exclude specific regexes
+  exclude_regex = ["_test.go"]
+  # Exclude unchanged files
+  exclude_unchanged = false
+  # Follow symlinks
+  follow_symlink = true
+  # Log file name
+  log = "build-errors.log"
+  # Delay before triggering rebuild (ms)
+  delay = 500
+  # Stop running old binary when building
+  stop_on_error = true
+  # Send interrupt signal before killing
+  send_interrupt = true
+  # Delay after sending interrupt (ms)
+  kill_delay = 500
+
+[color]
+  # Colors for build output
+  build = "yellow"
+  main = "magenta"
+  runner = "green"
+  watcher = "cyan"
+
+[log]
+  # Show log time
+  time = false
+
+[misc]
+  # Delete tmp directory on exit
+  clean_on_exit = true

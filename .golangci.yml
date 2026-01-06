@@ -1,0 +1,89 @@
+# golangci-lint configuration
+# See: https://golangci-lint.run/usage/configuration/
+
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    # Default linters
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    # Additional recommended linters
+    - bodyclose
+    - dupl
+    - errorlint
+    - exhaustive
+    - goconst
+    - gocritic
+    - gofmt
+    - goimports
+    - gosec
+    - misspell
+    - nilerr
+    - prealloc
+    - revive
+    - unconvert
+    - unparam
+    - whitespace
+
+linters-settings:
+  dupl:
+    threshold: 150
+
+  exhaustive:
+    default-signifies-exhaustive: true
+
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance
+      - style
+
+  goimports:
+    local-prefixes: github.com/penshort/penshort
+
+  gosec:
+    excludes:
+      - G104 # Audit errors not checked (we handle this with errcheck)
+
+  revive:
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: exported
+      - name: increment-decrement
+      - name: indent-error-flow
+      - name: package-comments
+      - name: range
+      - name: receiver-naming
+      - name: time-naming
+      - name: unexported-return
+      - name: var-declaration
+      - name: var-naming
+
+issues:
+  exclude-rules:
+    # Exclude some linters for test files
+    - path: _test\.go
+      linters:
+        - dupl
+        - goconst
+        - gosec
+
+  max-issues-per-linter: 0
+  max-same-issues: 0
