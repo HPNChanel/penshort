@@ -43,3 +43,5 @@ tmp/
 dist/
 
 .agent
+OVERVIEW.txt
+PLAN.txt

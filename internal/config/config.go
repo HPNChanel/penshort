@@ -33,6 +33,12 @@ type Config struct {
 	ReadTimeout     time.Duration `env:"READ_TIMEOUT" envDefault:"5s"`
 	WriteTimeout    time.Duration `env:"WRITE_TIMEOUT" envDefault:"10s"`
 	ShutdownTimeout time.Duration `env:"SHUTDOWN_TIMEOUT" envDefault:"30s"`
+
+	// Rate limiting
+	RateLimitAPIEnabled      bool `env:"RATE_LIMIT_API_ENABLED" envDefault:"true"`
+	RateLimitRedirectEnabled bool `env:"RATE_LIMIT_REDIRECT_ENABLED" envDefault:"true"`
+	RateLimitRedirectRPS     int  `env:"RATE_LIMIT_REDIRECT_RPS" envDefault:"100"`
+	RateLimitRedirectBurst   int  `env:"RATE_LIMIT_REDIRECT_BURST" envDefault:"20"`
 }
 
 // IsDevelopment returns true if running in development mode.

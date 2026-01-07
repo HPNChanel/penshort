@@ -71,9 +71,10 @@ func main() {
 	healthHandler := handler.NewHealthHandler(repo, cacheClient)
 	linkHandler := handler.NewLinkHandler(linkService, logger)
 	redirectHandler := handler.NewRedirectHandler(linkService, logger)
+	apiKeyHandler := handler.NewAPIKeyHandler(logger, repo)
 
 	// Setup router
-	r := setupRouter(h, healthHandler, linkHandler, redirectHandler, logger)
+	r := setupRouter(h, healthHandler, linkHandler, redirectHandler, apiKeyHandler, repo, cacheClient, cfg, logger)
 
 	// Create and run server
 	srv := server.New(
@@ -141,6 +142,10 @@ func setupRouter(
 	healthHandler *handler.HealthHandler,
 	linkHandler *handler.LinkHandler,
 	redirectHandler *handler.RedirectHandler,
+	apiKeyHandler *handler.APIKeyHandler,
+	repo *repository.Repository,
+	cacheClient *cache.Cache,
+	cfg *config.Config,
 	logger *slog.Logger,
 ) *chi.Mux {
 	r := chi.NewRouter()
@@ -158,20 +163,49 @@ func setupRouter(
 	// Root info endpoint
 	r.Get("/", h.Hello)
 
-	// API v1 routes
+	// Auth middleware configuration
+	authCfg := middleware.AuthConfig{
+		Logger:     logger,
+		Repository: repo,
+		Cache:      cacheClient,
+	}
+
+	// Rate limit middleware configuration
+	rateLimitCfg := middleware.RateLimitConfig{
+		Logger:           logger,
+		Cache:            cacheClient,
+		APIEnabled:       cfg.RateLimitAPIEnabled,
+		RedirectEnabled:  cfg.RateLimitRedirectEnabled,
+		RedirectRPS:      cfg.RateLimitRedirectRPS,
+		RedirectBurst:    cfg.RateLimitRedirectBurst,
+	}
+
+	// API v1 routes (require authentication)
 	r.Route("/api/v1", func(r chi.Router) {
-		// Link management
+		// Apply auth and rate limit middleware to all API routes
+		r.Use(middleware.Auth(authCfg))
+		r.Use(middleware.RateLimitAPI(rateLimitCfg))
+
+		// Link management (requires write scope for mutations)
 		r.Route("/links", func(r chi.Router) {
-			r.Post("/", linkHandler.Create)
-			r.Get("/", linkHandler.List)
-			r.Get("/{id}", linkHandler.Get)
-			r.Patch("/{id}", linkHandler.Update)
-			r.Delete("/{id}", linkHandler.Delete)
+			r.With(middleware.RequireRead()).Get("/", linkHandler.List)
+			r.With(middleware.RequireRead()).Get("/{id}", linkHandler.Get)
+			r.With(middleware.RequireWrite()).Post("/", linkHandler.Create)
+			r.With(middleware.RequireWrite()).Patch("/{id}", linkHandler.Update)
+			r.With(middleware.RequireAdmin()).Delete("/{id}", linkHandler.Delete)
+		})
+
+		// API key management (requires admin scope for mutations)
+		r.Route("/api-keys", func(r chi.Router) {
+			r.With(middleware.RequireRead()).Get("/", apiKeyHandler.ListAPIKeys)
+			r.With(middleware.RequireAdmin()).Post("/", apiKeyHandler.CreateAPIKey)
+			r.With(middleware.RequireAdmin()).Delete("/{key_id}", apiKeyHandler.RevokeAPIKey)
+			r.With(middleware.RequireAdmin()).Post("/{key_id}/rotate", apiKeyHandler.RotateAPIKey)
 		})
 	})
 
-	// Redirect handler (must be last to catch /{shortCode})
-	r.Get("/{shortCode}", redirectHandler.Redirect)
+	// Redirect handler with IP-based rate limiting (no auth required)
+	r.With(middleware.RateLimitIP(rateLimitCfg)).Get("/{shortCode}", redirectHandler.Redirect)
 
 	// 404 and 405 handlers
 	r.NotFound(h.NotFound)
