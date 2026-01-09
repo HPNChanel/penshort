@@ -160,7 +160,7 @@ func newRedirectTestEnv(t *testing.T) (context.Context, *repository.Repository, 
 	svc := service.NewLinkService(repo, cacheClient, "http://localhost:8080", recorder)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	redirectHandler := NewRedirectHandler(svc, logger)
+	redirectHandler := NewRedirectHandler(svc, nil, logger)
 
 	router := chi.NewRouter()
 	router.Get("/{shortCode}", redirectHandler.Redirect)

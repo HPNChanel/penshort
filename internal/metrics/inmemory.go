@@ -14,6 +14,18 @@ type Snapshot struct {
 	LinksCreated            uint64
 	LinksUpdated            uint64
 	LinksDeleted            uint64
+	// Analytics metrics
+	AnalyticsEventsPublished        uint64
+	AnalyticsEventsDropped          uint64
+	AnalyticsEventsProcessed        uint64
+	AnalyticsEventsProcessedFailed  uint64
+	AnalyticsEventsProcessedSkipped uint64
+	AnalyticsBatchCount             uint64
+	AnalyticsQueueDepth             int64
+	AnalyticsBatchDurationCount     uint64
+	AnalyticsBatchDurationTotalNs   int64
+	AnalyticsIngestLagCount         uint64
+	AnalyticsIngestLagTotalNs       int64
 }
 
 // InMemoryRecorder stores metrics in memory for tests.
@@ -25,6 +37,18 @@ type InMemoryRecorder struct {
 	linksCreated            uint64
 	linksUpdated            uint64
 	linksDeleted            uint64
+	// Analytics fields
+	analyticsEventsPublished      uint64
+	analyticsEventsDropped        uint64
+	analyticsEventsProcessed      uint64
+	analyticsEventsFailed         uint64
+	analyticsEventsSkipped        uint64
+	analyticsBatchCount           uint64
+	analyticsQueueDepth           int64
+	analyticsBatchDurationCount   uint64
+	analyticsBatchDurationTotalNs int64
+	analyticsIngestLagCount       uint64
+	analyticsIngestLagTotalNs     int64
 }
 
 // NewInMemory returns a Recorder that stores counters in memory.
@@ -35,13 +59,24 @@ func NewInMemory() *InMemoryRecorder {
 // Snapshot returns a copy of the counters.
 func (m *InMemoryRecorder) Snapshot() Snapshot {
 	return Snapshot{
-		RedirectCacheHits:       atomic.LoadUint64(&m.redirectCacheHits),
-		RedirectCacheMisses:     atomic.LoadUint64(&m.redirectCacheMisses),
-		RedirectDurationCount:   atomic.LoadUint64(&m.redirectDurationCount),
-		RedirectDurationTotalNs: atomic.LoadInt64(&m.redirectDurationTotalNs),
-		LinksCreated:            atomic.LoadUint64(&m.linksCreated),
-		LinksUpdated:            atomic.LoadUint64(&m.linksUpdated),
-		LinksDeleted:            atomic.LoadUint64(&m.linksDeleted),
+		RedirectCacheHits:               atomic.LoadUint64(&m.redirectCacheHits),
+		RedirectCacheMisses:             atomic.LoadUint64(&m.redirectCacheMisses),
+		RedirectDurationCount:           atomic.LoadUint64(&m.redirectDurationCount),
+		RedirectDurationTotalNs:         atomic.LoadInt64(&m.redirectDurationTotalNs),
+		LinksCreated:                    atomic.LoadUint64(&m.linksCreated),
+		LinksUpdated:                    atomic.LoadUint64(&m.linksUpdated),
+		LinksDeleted:                    atomic.LoadUint64(&m.linksDeleted),
+		AnalyticsEventsPublished:        atomic.LoadUint64(&m.analyticsEventsPublished),
+		AnalyticsEventsDropped:          atomic.LoadUint64(&m.analyticsEventsDropped),
+		AnalyticsEventsProcessed:        atomic.LoadUint64(&m.analyticsEventsProcessed),
+		AnalyticsEventsProcessedFailed:  atomic.LoadUint64(&m.analyticsEventsFailed),
+		AnalyticsEventsProcessedSkipped: atomic.LoadUint64(&m.analyticsEventsSkipped),
+		AnalyticsBatchCount:             atomic.LoadUint64(&m.analyticsBatchCount),
+		AnalyticsQueueDepth:             atomic.LoadInt64(&m.analyticsQueueDepth),
+		AnalyticsBatchDurationCount:     atomic.LoadUint64(&m.analyticsBatchDurationCount),
+		AnalyticsBatchDurationTotalNs:   atomic.LoadInt64(&m.analyticsBatchDurationTotalNs),
+		AnalyticsIngestLagCount:         atomic.LoadUint64(&m.analyticsIngestLagCount),
+		AnalyticsIngestLagTotalNs:       atomic.LoadInt64(&m.analyticsIngestLagTotalNs),
 	}
 }
 
@@ -74,4 +109,50 @@ func (m *InMemoryRecorder) IncLinkUpdated() {
 // IncLinkDeleted increments link deleted counter.
 func (m *InMemoryRecorder) IncLinkDeleted() {
 	atomic.AddUint64(&m.linksDeleted, 1)
+}
+
+// IncAnalyticsEventPublished increments event published counter.
+func (m *InMemoryRecorder) IncAnalyticsEventPublished(status string) {
+	if status == "success" {
+		atomic.AddUint64(&m.analyticsEventsPublished, 1)
+	} else {
+		atomic.AddUint64(&m.analyticsEventsDropped, 1)
+	}
+}
+
+// IncAnalyticsEventProcessed increments event processed counter.
+func (m *InMemoryRecorder) IncAnalyticsEventProcessed(status string) {
+	if status == "success" {
+		atomic.AddUint64(&m.analyticsEventsProcessed, 1)
+		return
+	}
+	if status == "failed" {
+		atomic.AddUint64(&m.analyticsEventsFailed, 1)
+		return
+	}
+	if status == "skipped" {
+		atomic.AddUint64(&m.analyticsEventsSkipped, 1)
+	}
+}
+
+// ObserveAnalyticsBatchSize records batch size.
+func (m *InMemoryRecorder) ObserveAnalyticsBatchSize(size int) {
+	atomic.AddUint64(&m.analyticsBatchCount, 1)
+}
+
+// ObserveAnalyticsBatchDuration records batch processing time.
+func (m *InMemoryRecorder) ObserveAnalyticsBatchDuration(duration time.Duration) {
+	atomic.AddUint64(&m.analyticsBatchDurationCount, 1)
+	atomic.AddInt64(&m.analyticsBatchDurationTotalNs, duration.Nanoseconds())
+}
+
+// SetAnalyticsQueueDepth sets the current queue depth.
+func (m *InMemoryRecorder) SetAnalyticsQueueDepth(depth int64) {
+	atomic.StoreInt64(&m.analyticsQueueDepth, depth)
+}
+
+// ObserveAnalyticsIngestLag records ingest lag.
+func (m *InMemoryRecorder) ObserveAnalyticsIngestLag(lag time.Duration) {
+	atomic.AddUint64(&m.analyticsIngestLagCount, 1)
+	atomic.AddInt64(&m.analyticsIngestLagTotalNs, lag.Nanoseconds())
 }

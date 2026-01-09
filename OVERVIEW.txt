@@ -1,0 +1,156 @@
+Tổng quan Kỹ thuật Dự án Penshort
+
+1.0 Giới thiệu Tổng quan về Dự án
+
+Dự án Penshort được kiến tạo với một mục tiêu rõ ràng: cung cấp một công cụ rút gọn URL chuyên biệt, có thể lập trình, dành riêng cho các quy trình làm việc ưu tiên API của nhà phát triển. Dự án không đặt mục tiêu trở thành một công cụ rút gọn URL đa năng cho người dùng phổ thông, mà tập trung vào việc cung cấp một bộ công cụ mạnh mẽ, có thể tích hợp và tự động hóa. Hiện tại, dự án đang ở trạng thái Giai đoạn 1: bộ khung dịch vụ, bao gồm các nền tảng cơ bản như cấu hình, kiểm tra sức khỏe, ghi nhật ký (logging), tích hợp liên tục (CI) và môi trường Docker Compose.
+
+Mục đích của tài liệu này là cung cấp một cái nhìn tổng quan kỹ thuật toàn diện về tầm nhìn, kiến trúc và lộ trình phát triển của Penshort cho các nhà phát triển, người vận hành hệ thống và các bên liên quan. Để hiểu rõ hơn về nền tảng của dự án, chúng ta sẽ bắt đầu bằng việc xem xét các mục tiêu cốt lõi đã định hình nên triết lý thiết kế của Penshort.
+
+2.0 Mục tiêu và Triết lý Thiết kế
+
+Việc xác định rõ ràng các mục tiêu dự án là yếu tố then chốt để định hướng mọi quyết định về kiến trúc và phát triển tính năng. Các nguyên tắc này không chỉ phân biệt Penshort với các công cụ rút gọn URL thông thường mà còn đảm bảo rằng sản phẩm cuối cùng đáp ứng chính xác nhu cầu của đối tượng người dùng mục tiêu.
+
+Ba mục tiêu cốt lõi của dự án bao gồm:
+
+* Xây dựng công cụ chuyên biệt cho quy trình làm việc của nhà phát triển: Thay vì cung cấp một giao diện người dùng phức tạp, Penshort tập trung vào các tính năng có thể tích hợp và tự động hóa. Điều này được thể hiện qua việc ưu tiên các chức năng như quản lý bằng khóa API, thu thập dữ liệu phân tích chi tiết, gửi thông báo qua webhook, áp dụng các chính sách giới hạn tốc độ (rate limits) và quản lý vòng đời liên kết thông qua các chính sách hết hạn.
+* Cung cấp chuyển hướng đáng tin cậy, được hỗ trợ bởi bộ đệm (cache-backed): Hiệu suất và độ tin cậy là ưu tiên hàng đầu. Việc sử dụng bộ đệm (cache) không chỉ giúp tăng tốc độ chuyển hướng mà còn giảm tải cho cơ sở dữ liệu chính, đảm bảo hệ thống hoạt động ổn định ngay cả khi có lưu lượng truy cập cao. Hành vi vận hành của hệ thống được thiết kế để rõ ràng và dễ dự đoán.
+* Duy trì hệ thống thân thiện với đội ngũ nhỏ và dễ vận hành: Triết lý này ảnh hưởng trực tiếp đến việc lựa chọn công nghệ, dẫn đến một bộ công nghệ tinh gọn gồm Go, PostgreSQL và Redis, nhằm giảm thiểu sự phức tạp trong triển khai và bảo trì.
+
+Các Mục tiêu Phi chức năng
+
+Bên cạnh các mục tiêu chức năng, dự án cũng đặt ra các yêu cầu phi chức năng quan trọng để đảm bảo chất lượng và sự tin cậy của dịch vụ:
+
+* Chuyển hướng nhanh: Mục tiêu này được hiện thực hóa bằng việc sử dụng Redis cache để lưu trữ ánh xạ từ mã rút gọn (short code) đến URL đích. Điều này cho phép hệ thống phản hồi các yêu cầu chuyển hướng gần như tức thời.
+* Độ tin cậy: Hệ thống cam kết không làm mất các sự kiện nhấp chuột (click events), đảm bảo dữ liệu phân tích luôn chính xác. Đồng thời, việc gửi webhook sẽ được theo dõi chặt chẽ để đảm bảo thông tin được gửi đến các hệ thống tích hợp một cách đáng tin cậy.
+* Bảo mật cơ bản: Các biện pháp bảo mật nền tảng được áp dụng, bao gồm việc không bao giờ lưu trữ khóa API ở dạng văn bản thuần (plaintext) và đảm bảo các thông tin nhạy cảm, bí mật (secrets) không bị ghi lại trong nhật ký hệ thống.
+
+Để hiện thực hóa các mục tiêu này, một kiến trúc kỹ thuật tinh gọn và hiệu quả đã được lựa chọn.
+
+3.0 Kiến trúc Kỹ thuật Dự kiến
+
+Việc lựa chọn một bộ công nghệ (tech stack) phù hợp là nền tảng để xây dựng một hệ thống vững chắc. Bộ công nghệ của Penshort được lựa chọn cẩn thận để đáp ứng các mục tiêu về hiệu suất cao, độ tin cậy và khả năng vận hành dễ dàng.
+
+Bảng dưới đây tóm tắt các thành phần chính trong kiến trúc dự kiến của hệ thống:
+
+Thành phần	Vai trò trong Hệ thống
+Go	Ngôn ngữ chính để xây dựng dịch vụ API cốt lõi.
+PostgreSQL	Hệ thống lưu trữ chính (system of record) cho dữ liệu bền vững.
+Redis	Bộ đệm hiệu năng cao và quản lý giới hạn tốc độ (rate limiting).
+
+Sự phân bổ ngôn ngữ trong dự án (dựa trên trạng thái hiện tại) cho thấy sự tập trung rõ rệt vào Go:
+
+* Go: 92.3%
+* Makefile: 3.3%
+* PLpgSQL: 3.2%
+* Dockerfile: 1.2%
+
+Kiến trúc này được thiết kế để hỗ trợ một cách hiệu quả bộ tính năng chuyên biệt sẽ được trình bày chi tiết trong phần tiếp theo.
+
+4.0 Phạm vi Tính năng Dự kiến
+
+Phần này sẽ trình bày chi tiết các khả năng dự kiến của Penshort. Các tính năng này không phải là một danh sách tùy ý; mỗi tính năng đều được lựa chọn cẩn thận để hiện thực hóa mục tiêu cốt lõi của chúng tôi là xây dựng một công cụ chuyên biệt cho quy trình làm việc của nhà phát triển.
+
+4.1 Quản lý Liên kết
+
+* Cung cấp đầy đủ các hoạt động CRUD (Tạo, Cập nhật, Vô hiệu hóa) cho các liên kết rút gọn.
+* Hỗ trợ chuyển hướng vĩnh viễn (301) và tạm thời (302).
+* Cho phép người dùng tùy chọn sử dụng bí danh tùy chỉnh (custom aliases) cho các liên kết thay vì mã được tạo tự động.
+
+4.2 Chính sách Hết hạn
+
+* Dựa trên thời gian: Thiết lập thời gian tự động hết hạn cho một liên kết.
+* Dựa trên số lần nhấp chuột (Tùy chọn): Vô hiệu hóa một liên kết sau khi nó đạt đến một số lượng nhấp chuột nhất định.
+
+4.3 Phân tích (Analytics)
+
+* Thu thập dữ liệu chi tiết cho mỗi sự kiện nhấp chuột, bao gồm: dấu thời gian (timestamp), trang giới thiệu (referrer), user-agent, và khu vực (region) (tùy chọn).
+* Phân biệt giữa tổng số lượt nhấp và số lượt nhấp duy nhất.
+* Cung cấp khả năng truy vấn dữ liệu phân tích theo từng liên kết cụ thể và trong một khoảng thời gian nhất định.
+
+4.4 Webhooks
+
+* Gửi thông báo webhook khi có một lượt nhấp chuột, với cơ chế gửi tin có chữ ký (signed delivery) để đảm bảo tính toàn vẹn.
+* Tích hợp cơ chế tự động thử lại với thời gian chờ tăng dần (retries with backoff) trong trường hợp gửi không thành công.
+* Theo dõi và ghi lại trạng thái gửi của từng webhook.
+
+4.5 Xác thực và Giới hạn Tốc độ (Authentication & Rate Limiting)
+
+* Sử dụng cơ chế xác thực dựa trên khóa API cho mỗi người dùng hoặc nhóm.
+* Áp dụng giới hạn tốc độ trên mỗi khóa API để kiểm soát tần suất truy cập vào các API quản lý.
+* Cung cấp tùy chọn giới hạn tốc độ trên mỗi địa chỉ IP cho các yêu cầu chuyển hướng để chống lạm dụng.
+
+4.6 Quản trị và Vận hành (Admin/Ops)
+
+* Cung cấp các điểm cuối (endpoints) dành cho vận hành như kiểm tra sức khỏe (/healthz) và kiểm tra sẵn sàng (/readyz).
+* Mục tiêu xây dựng một giao diện quản trị tối thiểu, tập trung vào các chức năng vận hành thiết yếu.
+
+Để hiện thực hóa các tính năng trên, dự án sẽ được triển khai theo một lộ trình phát triển rõ ràng.
+
+5.0 Lộ trình Phát triển
+
+Lộ trình phát triển của Penshort được chia thành các cột mốc (milestones) có thể quản lý được. Cách tiếp cận này cho phép phát triển theo từng giai đoạn, bắt đầu từ việc xây dựng các chức năng cốt lõi và dần dần bổ sung các tính năng phức tạp hơn, đảm bảo sự ổn định và chất lượng ở mỗi bước.
+
+1. Cột mốc 1: Chuyển hướng cốt lõi và CRUD liên kết với bộ đệm Redis.
+2. Cột mốc 2: Khóa API và giới hạn tốc độ.
+3. Cột mốc 3: Sự kiện nhấp chuột và truy vấn phân tích.
+4. Cột mốc 4: Webhooks với chữ ký và cơ chế thử lại.
+5. Cột mốc 5: Các điểm cuối vận hành, giám sát cơ bản và bằng chứng gửi (delivery evidence).
+
+Phần tiếp theo sẽ cung cấp hướng dẫn cụ thể để các nhà phát triển có thể thiết lập môi trường phát triển cục bộ cho giai đoạn hiện tại của dự án.
+
+6.0 Hướng dẫn Phát triển Cục bộ (Giai đoạn 1)
+
+Phần này cung cấp các hướng dẫn thực tế để nhà phát triển có thể thiết lập và chạy dự án Penshort ở trạng thái Giai đoạn 1 trên máy cục bộ, phục vụ cho việc phát triển và thử nghiệm.
+
+6.1 Điều kiện tiên quyết
+
+* Go phiên bản 1.22 trở lên.
+* Docker và Docker Compose.
+* Công cụ migrate CLI (golang-migrate) để thực thi các tệp migration cơ sở dữ liệu.
+
+6.2 Cấu hình Môi trường
+
+Dự án sử dụng các biến môi trường để cấu hình. Bạn có thể sao chép tệp .env.example thành .env và tùy chỉnh.
+
+Biến môi trường	Loại	Mô tả
+DATABASE_URL	Bắt buộc	Chuỗi kết nối đến cơ sở dữ liệu PostgreSQL.
+REDIS_URL	Bắt buộc	Chuỗi kết nối đến máy chủ Redis.
+APP_ENV	Tùy chọn	Môi trường ứng dụng (mặc định: development).
+APP_PORT	Tùy chọn	Cổng mà dịch vụ API sẽ lắng nghe (mặc định: 8080).
+LOG_LEVEL	Tùy chọn	Cấp độ ghi nhật ký (mặc định: info).
+LOG_FORMAT	Tùy chọn	Định dạng nhật ký (mặc định: json).
+READ_TIMEOUT	Tùy chọn	Thời gian chờ đọc yêu cầu (mặc định: 5s).
+WRITE_TIMEOUT	Tùy chọn	Thời gian chờ ghi phản hồi (mặc định: 10s).
+SHUTDOWN_TIMEOUT	Tùy chọn	Thời gian chờ để tắt ứng dụng một cách an toàn (mặc định: 30s).
+
+6.3 Các Lệnh Chính
+
+Dự án sử dụng Makefile để đơn giản hóa các tác vụ phổ biến:
+
+* make up: Khởi động tất cả các dịch vụ (API, PostgreSQL, Redis) bằng Docker Compose.
+* make dev: Chạy dịch vụ API trực tiếp trên máy chủ mà không cần Docker. Lệnh này hữu ích cho các chu kỳ phát triển nhanh khi chỉ thay đổi mã nguồn Go, vì nó tránh được thời gian build lại image của Docker.
+* make migrate: Áp dụng các tệp migration cơ sở dữ liệu mới nhất.
+* make migrate-down: Hoàn tác (rollback) migration cuối cùng đã được áp dụng.
+* make test: Chạy bộ kiểm thử đơn vị (unit tests).
+* make lint: Chạy công cụ phân tích mã tĩnh (linter) để kiểm tra chất lượng mã nguồn.
+
+6.4 Đánh đổi và Việc cần làm (Giai đoạn 1)
+
+Để thể hiện sự minh bạch về kỹ thuật, dưới đây là những hạn chế và công việc cần thực hiện sau Giai đoạn 1:
+
+* Kiểm tra sẵn sàng (readiness checks) hiện tại chỉ xác thực kết nối mạng đến cơ sở dữ liệu và Redis. Đây là một sự đánh đổi có chủ ý trong Giai đoạn 1 để đẩy nhanh việc thiết lập bộ khung; các kiểm tra sâu hơn ở cấp độ schema sẽ được bổ sung sau.
+* Phạm vi kiểm thử tích hợp còn ở mức cơ bản (smoke-level). Cần bổ sung các bài kiểm thử chi tiết hơn về hành vi của migration và cache trong Giai đoạn 2.
+* Việc chạy migration cục bộ yêu cầu cài đặt migrate CLI. Cần xem xét việc tạo một target trong Docker để thực thi migration mà không cần cài đặt công cụ bên ngoài.
+
+Để biết thêm thông tin về cách đóng góp cho dự án, vui lòng tham khảo các tài liệu quản trị dưới đây.
+
+7.0 Quản trị và Đóng góp
+
+Dự án Penshort hoan nghênh sự tham gia và đóng góp từ cộng đồng. Để đảm bảo quy trình diễn ra một cách minh bạch và hiệu quả, vui lòng tham khảo các tài liệu sau trong kho mã nguồn:
+
+* CONTRIBUTING.md: Cung cấp hướng dẫn chi tiết về cách đề xuất thay đổi, quy trình làm việc với mã nguồn và cách gửi một Pull Request.
+* SECURITY.md: Mô tả quy trình báo cáo các lỗ hổng bảo mật một cách có trách nhiệm.
+* GOVERNANCE.md: Giải thích về quyền bảo trì dự án (maintainership) và quy trình ra quyết định của đội ngũ phát triển.
+* docs/adr/: Thư mục chứa các Hồ sơ Quyết định Kiến trúc (Architecture Decision Records), ghi lại các quyết định kỹ thuật quan trọng và lý do đằng sau chúng.
+
+Dự án được cấp phép theo MIT License.

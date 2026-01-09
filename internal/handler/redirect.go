@@ -8,21 +8,24 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/penshort/penshort/internal/analytics"
 	"github.com/penshort/penshort/internal/handler/dto"
 	"github.com/penshort/penshort/internal/service"
 )
 
 // RedirectHandler handles redirect requests.
 type RedirectHandler struct {
-	svc    *service.LinkService
-	logger *slog.Logger
+	svc       *service.LinkService
+	publisher *analytics.Publisher
+	logger    *slog.Logger
 }
 
 // NewRedirectHandler creates a new RedirectHandler.
-func NewRedirectHandler(svc *service.LinkService, logger *slog.Logger) *RedirectHandler {
+func NewRedirectHandler(svc *service.LinkService, publisher *analytics.Publisher, logger *slog.Logger) *RedirectHandler {
 	return &RedirectHandler{
-		svc:    svc,
-		logger: logger,
+		svc:       svc,
+		publisher: publisher,
+		logger:    logger,
 	}
 }
 
@@ -46,6 +49,21 @@ func (h *RedirectHandler) Redirect(w http.ResponseWriter, r *http.Request) {
 
 	// Increment click counter asynchronously
 	h.svc.IncrementClickAsync(r.Context(), shortCode)
+
+	// Publish analytics event asynchronously (fire-and-forget)
+	if h.publisher != nil {
+		clickedAt := time.Now()
+		event := analytics.ClickEventPayload{
+			ShortCode:   shortCode,
+			LinkID:      link.ID,
+			Referrer:    analytics.SanitizeReferrer(r.Header.Get("Referer")),
+			UserAgent:   analytics.TruncateUserAgent(r.Header.Get("User-Agent")),
+			VisitorHash: analytics.GenerateVisitorHash(getClientIP(r), r.Header.Get("User-Agent"), clickedAt),
+			CountryCode: analytics.ExtractCountryCode(r.Header.Get("CF-IPCountry")),
+			ClickedAt:   clickedAt.UnixMilli(),
+		}
+		h.publisher.PublishAsync(event)
+	}
 
 	// Log successful redirect
 	h.logger.Info("redirect_success",
@@ -112,4 +130,28 @@ func (h *RedirectHandler) writeError(w http.ResponseWriter, status int, code, me
 		Error: message,
 		Code:  code,
 	})
+}
+
+// getClientIP extracts the client IP address from the request.
+func getClientIP(r *http.Request) string {
+	// Check Cloudflare header first
+	if ip := r.Header.Get("CF-Connecting-IP"); ip != "" {
+		return ip
+	}
+	// Check X-Forwarded-For
+	if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
+		// Take the first IP in the chain
+		for i := 0; i < len(ip); i++ {
+			if ip[i] == ',' {
+				return ip[:i]
+			}
+		}
+		return ip
+	}
+	// Check X-Real-IP
+	if ip := r.Header.Get("X-Real-IP"); ip != "" {
+		return ip
+	}
+	// Fall back to RemoteAddr
+	return r.RemoteAddr
 }

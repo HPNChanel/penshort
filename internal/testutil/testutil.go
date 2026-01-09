@@ -76,6 +76,35 @@ func ResetLinksSchema(ctx context.Context, pool *pgxpool.Pool) error {
 	return nil
 }
 
+// ResetAnalyticsSchema drops and recreates the analytics schema for tests.
+func ResetAnalyticsSchema(ctx context.Context, pool *pgxpool.Pool) error {
+	root, err := projectRoot()
+	if err != nil {
+		return err
+	}
+
+	downPath := filepath.Join(root, "migrations", "000005_analytics.down.sql")
+	upPath := filepath.Join(root, "migrations", "000005_analytics.up.sql")
+
+	downSQL, err := os.ReadFile(downPath)
+	if err != nil {
+		return fmt.Errorf("read analytics down migration: %w", err)
+	}
+	if _, err := pool.Exec(ctx, string(downSQL)); err != nil {
+		return fmt.Errorf("apply analytics down migration: %w", err)
+	}
+
+	upSQL, err := os.ReadFile(upPath)
+	if err != nil {
+		return fmt.Errorf("read analytics up migration: %w", err)
+	}
+	if _, err := pool.Exec(ctx, string(upSQL)); err != nil {
+		return fmt.Errorf("apply analytics up migration: %w", err)
+	}
+
+	return nil
+}
+
 // FlushRedis clears the current Redis database.
 func FlushRedis(ctx context.Context, client *redis.Client) error {
 	return client.FlushDB(ctx).Err()

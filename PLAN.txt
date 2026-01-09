@@ -1,0 +1,67 @@
+Kế hoạch Dự án Penshort: Trình rút gọn URL chuyên dụng cho Nhà phát triển
+
+1.0 Tổng quan Dự án
+
+Penshort là một dự án nhằm xây dựng dịch vụ rút gọn URL chuyên dụng, được thiết kế đặc biệt để phục vụ cho quy trình làm việc ưu tiên API (API-first) của các nhà phát triển. Không giống như các dịch vụ rút gọn URL phổ thông dành cho người tiêu dùng đại chúng, Penshort tập trung vào việc cung cấp một bộ công cụ mạnh mẽ, có thể lập trình và tích hợp liền mạch vào các ứng dụng và hệ thống tự động hóa. Hiện tại, dự án đang ở giai đoạn đầu tiên, với một "bộ khung dịch vụ Giai đoạn 1" đã được thiết lập, bao gồm các cấu hình cơ bản, kiểm tra trạng thái hoạt động (health checks), ghi nhật ký (logging), tích hợp liên tục (CI) và môi trường phát triển với Docker Compose.
+
+Tổng quan này đặt nền móng cho việc xác định các mục tiêu chiến lược và lộ trình phát triển chi tiết của dự án.
+
+2.0 Mục tiêu Chiến lược
+
+Việc xác định các mục tiêu chiến lược rõ ràng là yếu tố cốt lõi để định hướng quá trình phát triển, đảm bảo mọi tính năng được xây dựng đều phù hợp với nhu cầu thực tế của người dùng mục tiêu và mang lại giá trị khác biệt. Các mục tiêu dưới đây đóng vai trò kim chỉ nam cho mọi quyết định về kiến trúc và tính năng của Penshort.
+
+* Xây dựng một trình rút gọn chuyên dụng cho quy trình làm việc của nhà phát triển Mục tiêu này định vị Penshort là một công cụ dành cho chuyên gia, không phải một tiện ích thông thường. Các tính năng cốt lõi như quản lý khóa API (API keys), phân tích dữ liệu (analytics), webhook, giới hạn tốc độ truy cập (rate limits) và chính sách hết hạn liên kết (expiration policies) là những yếu tố khác biệt chính, cho phép nhà phát triển tích hợp, tự động hóa và giám sát các liên kết rút gọn một cách hiệu quả.
+* Cung cấp các lượt chuyển hướng đáng tin cậy, được hỗ trợ bởi bộ đệm (cache) Đối với người dùng kỹ thuật, hiệu suất và hành vi có thể dự đoán là cực kỳ quan trọng. Mục tiêu này cam kết rằng các lượt chuyển hướng sẽ không chỉ nhanh mà còn phải hoạt động một cách nhất quán. Việc sử dụng bộ đệm (cache) là một giải pháp kỹ thuật trực tiếp để đạt được tốc độ cao, trong khi "hành vi hoạt động rõ ràng" đảm bảo rằng hệ thống có thể được giám sát và gỡ lỗi một cách dễ dàng.
+* Duy trì hệ thống thân thiện với đội ngũ nhỏ và dễ vận hành Mục tiêu này nhấn mạnh cam kết về sự đơn giản trong kiến trúc và quy trình bảo trì. Thay vì xây dựng một hệ thống phức tạp, Penshort hướng đến một thiết kế gọn nhẹ, dễ triển khai và quản lý, cho phép một đội ngũ nhỏ có thể vận hành hiệu quả mà không tốn nhiều chi phí hay nguồn lực.
+
+Các mục tiêu này sẽ được hiện thực hóa thông qua một lộ trình phát triển được phân chia thành các mốc quan trọng rõ ràng.
+
+3.0 Lộ trình Phát triển và các Mốc quan trọng
+
+Dự án sẽ được triển khai theo phương pháp tiếp cận gia tăng, chia thành các mốc quan trọng (milestones). Cách tiếp cận này giúp quản lý sự phức tạp, giảm thiểu rủi ro bằng cách tập trung vào một tập hợp tính năng cụ thể ở mỗi giai đoạn, và quan trọng nhất là mang lại giá trị cho người dùng một cách nhanh chóng và liên tục.
+
+Lộ trình phát triển dự kiến bao gồm năm mốc quan trọng sau:
+
+1. Mốc 1: Core redirect and link CRUD with Redis caching.
+2. Mốc 2: API keys and rate limiting.
+3. Mốc 3: Click events and analytics queries.
+4. Mốc 4: Webhooks with signing and retries.
+5. Mốc 5: Ops endpoints, monitoring basics, and delivery evidence.
+
+Việc thực thi lộ trình này sẽ dựa trên một ngăn xếp công nghệ đã được lựa chọn cẩn thận để đáp ứng các yêu cầu của dự án.
+
+4.0 Ngăn xếp Công nghệ Dự kiến
+
+Ngăn xếp công nghệ của Penshort được lựa chọn một cách có chủ đích để hỗ trợ tốt nhất các mục tiêu cốt lõi của dự án về hiệu suất, độ tin cậy và khả năng vận hành dễ dàng. Mỗi thành phần đều đóng một vai trò quan trọng trong việc xây dựng một dịch vụ mạnh mẽ và hiệu quả.
+
+Thành phần	Vai trò trong Dự án	Lý do Lựa chọn (Suy luận từ mục tiêu)
+Go	Xây dựng dịch vụ API chính	Go được chọn để tạo ra một dịch vụ API hiệu suất cao, biên dịch ra tệp nhị phân duy nhất, giúp việc triển khai và vận hành trở nên đơn giản. Điều này trực tiếp hỗ trợ mục tiêu "thân thiện với đội ngũ nhỏ và dễ vận hành".
+PostgreSQL	Hệ thống ghi nhận chính (system of record)	PostgreSQL đảm bảo tính toàn vẹn, bền vững và độ tin cậy của dữ liệu. Với vai trò là nơi lưu trữ thông tin gốc, nó là nền tảng cho mục tiêu "cung cấp các lượt chuyển hướng đáng tin cậy".
+Redis	Bộ đệm (cache) và giới hạn tốc độ (rate limiting)	Redis đóng vai trò kép: làm bộ đệm để tăng tốc độ chuyển hướng và quản lý giới hạn truy cập. Việc này trực tiếp hiện thực hóa các mục tiêu "chuyển hướng được hỗ trợ bởi bộ đệm" và hỗ trợ các tính năng cho nhà phát triển.
+
+Ngăn xếp công nghệ này sẽ là nền tảng vững chắc để xây dựng các tính năng chi tiết được mô tả trong phần tiếp theo.
+
+5.0 Phạm vi Tính năng và Yêu cầu
+
+Việc xác định rõ ràng phạm vi tính năng và các yêu cầu là bước thiết yếu để đảm bảo sản phẩm cuối cùng đáp ứng đúng kỳ vọng. Các yêu cầu được chia thành hai loại: yêu cầu chức năng (những gì hệ thống thực hiện) và yêu cầu phi chức năng (cách hệ thống thực hiện).
+
+5.1 Yêu cầu Chức năng
+
+Dưới đây là danh sách các tính năng dự kiến sẽ được phát triển cho Penshort:
+
+* Quản lý liên kết (Link management): Cho phép tạo, cập nhật, vô hiệu hóa và chuyển hướng (301/302) các liên kết, với tùy chọn sử dụng bí danh (alias) tùy chỉnh.
+* Chính sách hết hạn (Expiration policies): Cung cấp các chính sách hết hạn dựa trên thời gian và tùy chọn dựa trên số lượt nhấp chuột.
+* Phân tích (Analytics): Ghi lại các sự kiện nhấp chuột (dấu thời gian, referrer, user-agent, tùy chọn khu vực), phân biệt giữa lượt nhấp duy nhất và tổng số, cho phép truy vấn theo liên kết và khoảng thời gian.
+* Webhooks: Cung cấp webhook được ký số khi có sự kiện nhấp chuột, hỗ trợ cơ chế thử lại với thời gian chờ tăng dần (backoff) và theo dõi trạng thái gửi.
+* Xác thực và Giới hạn tốc độ (Authentication and rate limiting): Hỗ trợ khóa API cho mỗi người dùng/đội ngũ, áp dụng giới hạn trên mỗi khóa và tùy chọn giới hạn theo địa chỉ IP cho việc chuyển hướng.
+* Quản trị/Vận hành (Admin/ops): Cung cấp các điểm cuối (endpoint) kiểm tra trạng thái hoạt động (health) và sẵn sàng (readiness), cùng với một giao diện quản trị tối giản.
+
+5.2 Yêu cầu Phi chức năng
+
+Bên cạnh các tính năng, chất lượng và độ tin cậy của dịch vụ được đảm bảo thông qua các yêu cầu phi chức năng sau:
+
+* Chuyển hướng nhanh (Fast redirects): Yêu cầu này ảnh hưởng trực tiếp đến trải nghiệm của người dùng cuối khi truy cập vào một liên kết rút gọn. Việc sử dụng Redis để lưu trữ ánh xạ từ mã ngắn đến URL đích là giải pháp kỹ thuật chính để đảm bảo độ trễ thấp và hiệu suất cao.
+* Độ tin cậy (Reliability): Dịch vụ cam kết không làm mất các sự kiện nhấp chuột và theo dõi chặt chẽ việc gửi webhook. Điều này rất quan trọng đối với các nhà phát triển dựa vào dữ liệu của Penshort để phân tích hoặc kích hoạt các quy trình tự động.
+* Nền tảng bảo mật (Security baseline): Xây dựng lòng tin với người dùng là ưu tiên hàng đầu. Các biện pháp cụ thể như không bao giờ lưu trữ khóa API ở dạng văn bản thuần và đảm bảo nhật ký hệ thống không chứa các thông tin nhạy cảm là những yêu cầu bảo mật cơ bản nhưng tối quan trọng.
+
+Những yêu cầu chức năng và phi chức năng này cùng nhau tạo thành nền tảng cho việc xây dựng một dịch vụ rút gọn URL mạnh mẽ, đáng tin cậy và thực sự hữu ích cho cộng đồng nhà phát triển.

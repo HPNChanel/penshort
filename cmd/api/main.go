@@ -3,15 +3,18 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/url"
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 
+	"github.com/penshort/penshort/internal/analytics"
 	"github.com/penshort/penshort/internal/cache"
 	"github.com/penshort/penshort/internal/config"
 	"github.com/penshort/penshort/internal/handler"
@@ -63,18 +66,32 @@ func main() {
 	logger.Info("connected to Redis")
 
 	// Initialize services
-	metricsRecorder := metrics.NewNoop()
+	metricsRecorder := metrics.NewInMemory()
 	linkService := service.NewLinkService(repo, cacheClient, cfg.BaseURL, metricsRecorder)
+	clickEventRepo := repository.NewClickEventRepository(repo)
+
+	// Initialize analytics publisher
+	analyticsPublisher := analytics.NewPublisher(cacheClient.Client(), logger, metricsRecorder)
 
 	// Initialize handlers
 	h := handler.New()
 	healthHandler := handler.NewHealthHandler(repo, cacheClient)
 	linkHandler := handler.NewLinkHandler(linkService, logger)
-	redirectHandler := handler.NewRedirectHandler(linkService, logger)
+	analyticsHandler := handler.NewAnalyticsHandler(clickEventRepo, logger)
+	metricsHandler := handler.NewMetricsHandler(metricsRecorder)
+	redirectHandler := handler.NewRedirectHandler(linkService, analyticsPublisher, logger)
 	apiKeyHandler := handler.NewAPIKeyHandler(logger, repo)
 
 	// Setup router
-	r := setupRouter(h, healthHandler, linkHandler, redirectHandler, apiKeyHandler, repo, cacheClient, cfg, logger)
+	r := setupRouter(h, healthHandler, metricsHandler, linkHandler, analyticsHandler, redirectHandler, apiKeyHandler, repo, cacheClient, cfg, logger)
+
+	// Start analytics worker in the background.
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+	workerErr := make(chan error, 1)
+	worker := analytics.NewWorker(cacheClient.Client(), clickEventRepo, logger, analytics.NewConsumerID(), metricsRecorder)
+	go func() {
+		workerErr <- worker.Run(workerCtx)
+	}()
 
 	// Create and run server
 	srv := server.New(
@@ -93,8 +110,27 @@ func main() {
 	)
 
 	if err := srv.Run(); err != nil {
+		workerCancel()
+		select {
+		case err := <-workerErr:
+			if err != nil && !errors.Is(err, context.Canceled) {
+				logger.Error("analytics worker stopped", "error", err)
+			}
+		case <-time.After(5 * time.Second):
+			logger.Warn("analytics worker shutdown timed out")
+		}
 		logger.Error("server error", "error", err)
 		os.Exit(1)
+	}
+
+	workerCancel()
+	select {
+	case err := <-workerErr:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error("analytics worker stopped", "error", err)
+		}
+	case <-time.After(5 * time.Second):
+		logger.Warn("analytics worker shutdown timed out")
 	}
 }
 
@@ -140,7 +176,9 @@ func parseLogLevel(level string) slog.Level {
 func setupRouter(
 	h *handler.Handler,
 	healthHandler *handler.HealthHandler,
+	metricsHandler *handler.MetricsHandler,
 	linkHandler *handler.LinkHandler,
+	analyticsHandler *handler.AnalyticsHandler,
 	redirectHandler *handler.RedirectHandler,
 	apiKeyHandler *handler.APIKeyHandler,
 	repo *repository.Repository,
@@ -159,6 +197,7 @@ func setupRouter(
 	// Health endpoints (no auth required)
 	r.Get("/healthz", healthHandler.Healthz)
 	r.Get("/readyz", healthHandler.Readyz)
+	r.Get("/metrics", metricsHandler.Metrics)
 
 	// Root info endpoint
 	r.Get("/", h.Hello)
@@ -172,12 +211,12 @@ func setupRouter(
 
 	// Rate limit middleware configuration
 	rateLimitCfg := middleware.RateLimitConfig{
-		Logger:           logger,
-		Cache:            cacheClient,
-		APIEnabled:       cfg.RateLimitAPIEnabled,
-		RedirectEnabled:  cfg.RateLimitRedirectEnabled,
-		RedirectRPS:      cfg.RateLimitRedirectRPS,
-		RedirectBurst:    cfg.RateLimitRedirectBurst,
+		Logger:          logger,
+		Cache:           cacheClient,
+		APIEnabled:      cfg.RateLimitAPIEnabled,
+		RedirectEnabled: cfg.RateLimitRedirectEnabled,
+		RedirectRPS:     cfg.RateLimitRedirectRPS,
+		RedirectBurst:   cfg.RateLimitRedirectBurst,
 	}
 
 	// API v1 routes (require authentication)
@@ -190,6 +229,7 @@ func setupRouter(
 		r.Route("/links", func(r chi.Router) {
 			r.With(middleware.RequireRead()).Get("/", linkHandler.List)
 			r.With(middleware.RequireRead()).Get("/{id}", linkHandler.Get)
+			r.With(middleware.RequireRead()).Get("/{id}/analytics", analyticsHandler.GetLinkAnalytics)
 			r.With(middleware.RequireWrite()).Post("/", linkHandler.Create)
 			r.With(middleware.RequireWrite()).Patch("/{id}", linkHandler.Update)
 			r.With(middleware.RequireAdmin()).Delete("/{id}", linkHandler.Delete)
