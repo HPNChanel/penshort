@@ -265,6 +265,48 @@ func (r *Repository) ShortCodeExists(ctx context.Context, shortCode string) (boo
 	return exists, nil
 }
 
+// SearchLinksByDestination searches links by destination URL (case-insensitive partial match).
+// This is an admin-only operation for debugging and support.
+// Results are limited to prevent unbounded queries.
+func (r *Repository) SearchLinksByDestination(ctx context.Context, destination string, limit int) ([]*model.Link, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20 // Default limit
+	}
+
+	// Use ILIKE for case-insensitive partial matching
+	query := `
+		SELECT id, short_code, destination, redirect_type, owner_id, enabled, expires_at, deleted_at, click_count, created_at, updated_at
+		FROM links
+		WHERE destination ILIKE $1
+		ORDER BY created_at DESC
+		LIMIT $2
+	`
+
+	// Wrap with wildcards for partial matching
+	pattern := "%" + destination + "%"
+
+	rows, err := r.pool.Query(ctx, query, pattern, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search links by destination: %w", err)
+	}
+	defer rows.Close()
+
+	var links []*model.Link
+	for rows.Next() {
+		link, err := r.scanLinkFromRows(rows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan link: %w", err)
+		}
+		links = append(links, link)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating links: %w", err)
+	}
+
+	return links, nil
+}
+
 // scanLink scans a single row into a Link model.
 func (r *Repository) scanLink(row pgx.Row) (*model.Link, error) {
 	var link model.Link

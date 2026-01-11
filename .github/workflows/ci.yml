@@ -175,7 +175,29 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Required for gitleaks
 
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      # === Secrets Scanning ===
+      - name: Run gitleaks (secrets detection)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+      # === Go Vulnerability Check ===
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        run: govulncheck ./...
+
+      # === Filesystem Vulnerability Scan ===
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
@@ -185,12 +207,30 @@ jobs:
           exit-code: '1'
           ignore-unfixed: true
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
+      # === Static Security Analysis ===
       - name: Run gosec
         uses: securego/gosec@master
         with:
           args: -exclude-dir=testdata ./...
+
+  # === Container Image Scanning (on main branch only) ===
+  container-scan:
+    name: Container Scan
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    needs: [build]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t penshort:${{ github.sha }} .
+
+      - name: Run Trivy container scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'penshort:${{ github.sha }}'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'

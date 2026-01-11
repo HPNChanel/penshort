@@ -26,6 +26,14 @@ type Snapshot struct {
 	AnalyticsBatchDurationTotalNs   int64
 	AnalyticsIngestLagCount         uint64
 	AnalyticsIngestLagTotalNs       int64
+	// Webhook metrics
+	WebhookDeliveriesSuccess   uint64
+	WebhookDeliveriesFailed    uint64
+	WebhookDeliveriesExhausted uint64
+	WebhookRetries             uint64
+	WebhookQueueDepth          int64
+	WebhookDurationCount       uint64
+	WebhookDurationTotalNs     int64
 }
 
 // InMemoryRecorder stores metrics in memory for tests.
@@ -49,6 +57,14 @@ type InMemoryRecorder struct {
 	analyticsBatchDurationTotalNs int64
 	analyticsIngestLagCount       uint64
 	analyticsIngestLagTotalNs     int64
+	// Webhook fields
+	webhookDeliveriesSuccess   uint64
+	webhookDeliveriesFailed    uint64
+	webhookDeliveriesExhausted uint64
+	webhookRetries             uint64
+	webhookQueueDepth          int64
+	webhookDurationCount       uint64
+	webhookDurationTotalNs     int64
 }
 
 // NewInMemory returns a Recorder that stores counters in memory.
@@ -77,6 +93,14 @@ func (m *InMemoryRecorder) Snapshot() Snapshot {
 		AnalyticsBatchDurationTotalNs:   atomic.LoadInt64(&m.analyticsBatchDurationTotalNs),
 		AnalyticsIngestLagCount:         atomic.LoadUint64(&m.analyticsIngestLagCount),
 		AnalyticsIngestLagTotalNs:       atomic.LoadInt64(&m.analyticsIngestLagTotalNs),
+		// Webhook metrics
+		WebhookDeliveriesSuccess:   atomic.LoadUint64(&m.webhookDeliveriesSuccess),
+		WebhookDeliveriesFailed:    atomic.LoadUint64(&m.webhookDeliveriesFailed),
+		WebhookDeliveriesExhausted: atomic.LoadUint64(&m.webhookDeliveriesExhausted),
+		WebhookRetries:             atomic.LoadUint64(&m.webhookRetries),
+		WebhookQueueDepth:          atomic.LoadInt64(&m.webhookQueueDepth),
+		WebhookDurationCount:       atomic.LoadUint64(&m.webhookDurationCount),
+		WebhookDurationTotalNs:     atomic.LoadInt64(&m.webhookDurationTotalNs),
 	}
 }
 
@@ -156,3 +180,32 @@ func (m *InMemoryRecorder) ObserveAnalyticsIngestLag(lag time.Duration) {
 	atomic.AddUint64(&m.analyticsIngestLagCount, 1)
 	atomic.AddInt64(&m.analyticsIngestLagTotalNs, lag.Nanoseconds())
 }
+
+// IncWebhookDelivery increments webhook delivery counter by status.
+func (m *InMemoryRecorder) IncWebhookDelivery(status string, endpointID string) {
+	switch status {
+	case "success":
+		atomic.AddUint64(&m.webhookDeliveriesSuccess, 1)
+	case "failed":
+		atomic.AddUint64(&m.webhookDeliveriesFailed, 1)
+	case "exhausted":
+		atomic.AddUint64(&m.webhookDeliveriesExhausted, 1)
+	}
+}
+
+// ObserveWebhookDeliveryDuration records webhook delivery duration.
+func (m *InMemoryRecorder) ObserveWebhookDeliveryDuration(endpointID string, duration time.Duration) {
+	atomic.AddUint64(&m.webhookDurationCount, 1)
+	atomic.AddInt64(&m.webhookDurationTotalNs, duration.Nanoseconds())
+}
+
+// IncWebhookRetry increments webhook retry counter.
+func (m *InMemoryRecorder) IncWebhookRetry(endpointID string, attempt int) {
+	atomic.AddUint64(&m.webhookRetries, 1)
+}
+
+// SetWebhookQueueDepth sets the webhook queue depth.
+func (m *InMemoryRecorder) SetWebhookQueueDepth(depth int64) {
+	atomic.StoreInt64(&m.webhookQueueDepth, depth)
+}
+

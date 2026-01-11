@@ -23,6 +23,12 @@ type Recorder interface {
 	ObserveAnalyticsBatchDuration(duration time.Duration)
 	SetAnalyticsQueueDepth(depth int64)
 	ObserveAnalyticsIngestLag(lag time.Duration)
+
+	// Webhook delivery metrics
+	IncWebhookDelivery(status string, endpointID string)         // status: "success", "failed", "exhausted"
+	ObserveWebhookDeliveryDuration(endpointID string, duration time.Duration)
+	IncWebhookRetry(endpointID string, attempt int)
+	SetWebhookQueueDepth(depth int64)
 }
 
 // Snapshotter exposes a snapshot of current metrics.

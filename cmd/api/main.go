@@ -81,9 +81,10 @@ func main() {
 	metricsHandler := handler.NewMetricsHandler(metricsRecorder)
 	redirectHandler := handler.NewRedirectHandler(linkService, analyticsPublisher, logger)
 	apiKeyHandler := handler.NewAPIKeyHandler(logger, repo)
+	adminHandler := handler.NewAdminHandler(repo, repo, logger)
 
 	// Setup router
-	r := setupRouter(h, healthHandler, metricsHandler, linkHandler, analyticsHandler, redirectHandler, apiKeyHandler, repo, cacheClient, cfg, logger)
+	r := setupRouter(h, healthHandler, metricsHandler, linkHandler, analyticsHandler, redirectHandler, apiKeyHandler, adminHandler, repo, cacheClient, cfg, logger)
 
 	// Start analytics worker in the background.
 	workerCtx, workerCancel := context.WithCancel(context.Background())
@@ -181,6 +182,7 @@ func setupRouter(
 	analyticsHandler *handler.AnalyticsHandler,
 	redirectHandler *handler.RedirectHandler,
 	apiKeyHandler *handler.APIKeyHandler,
+	adminHandler *handler.AdminHandler,
 	repo *repository.Repository,
 	cacheClient *cache.Cache,
 	cfg *config.Config,
@@ -188,7 +190,25 @@ func setupRouter(
 ) *chi.Mux {
 	r := chi.NewRouter()
 
-	// Global middleware
+	// === Security Middleware (applied first) ===
+	// Security headers for all responses
+	securityCfg := middleware.SecurityConfig{
+		IsDevelopment:      cfg.IsDevelopment(),
+		AllowedOrigins:     cfg.GetCORSAllowedOrigins(),
+		MaxRequestBodySize: cfg.MaxRequestBodySize,
+	}
+	r.Use(middleware.Security(securityCfg))
+
+	// CORS handling (if origins configured)
+	corsOrigins := cfg.GetCORSAllowedOrigins()
+	if len(corsOrigins) > 0 {
+		corsCfg := middleware.DefaultCORSConfig()
+		corsCfg.AllowedOrigins = corsOrigins
+		r.Use(middleware.CORS(corsCfg))
+		logger.Info("CORS enabled", "origins", corsOrigins)
+	}
+
+	// === Standard Middleware ===
 	r.Use(chimiddleware.RealIP)
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Logger(logger))
@@ -221,6 +241,9 @@ func setupRouter(
 
 	// API v1 routes (require authentication)
 	r.Route("/api/v1", func(r chi.Router) {
+		// Apply security middleware first
+		r.Use(middleware.MaxBodySize(cfg.MaxRequestBodySize))
+
 		// Apply auth and rate limit middleware to all API routes
 		r.Use(middleware.Auth(authCfg))
 		r.Use(middleware.RateLimitAPI(rateLimitCfg))
@@ -241,6 +264,14 @@ func setupRouter(
 			r.With(middleware.RequireAdmin()).Post("/", apiKeyHandler.CreateAPIKey)
 			r.With(middleware.RequireAdmin()).Delete("/{key_id}", apiKeyHandler.RevokeAPIKey)
 			r.With(middleware.RequireAdmin()).Post("/{key_id}/rotate", apiKeyHandler.RotateAPIKey)
+		})
+
+		// Admin routes (all require admin scope)
+		r.Route("/admin", func(r chi.Router) {
+			r.Use(middleware.RequireAdmin())
+			r.Get("/links", adminHandler.LookupLinks)
+			r.Get("/api-keys", adminHandler.ListAPIKeysByUser)
+			r.Get("/stats", adminHandler.Stats)
 		})
 	})
 

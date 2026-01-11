@@ -46,3 +46,14 @@ func (n *NoopRecorder) SetAnalyticsQueueDepth(depth int64) {}
 // ObserveAnalyticsIngestLag is a no-op.
 func (n *NoopRecorder) ObserveAnalyticsIngestLag(lag time.Duration) {}
 
+// IncWebhookDelivery is a no-op.
+func (n *NoopRecorder) IncWebhookDelivery(status string, endpointID string) {}
+
+// ObserveWebhookDeliveryDuration is a no-op.
+func (n *NoopRecorder) ObserveWebhookDeliveryDuration(endpointID string, duration time.Duration) {}
+
+// IncWebhookRetry is a no-op.
+func (n *NoopRecorder) IncWebhookRetry(endpointID string, attempt int) {}
+
+// SetWebhookQueueDepth is a no-op.
+func (n *NoopRecorder) SetWebhookQueueDepth(depth int64) {}
