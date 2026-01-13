@@ -241,6 +241,82 @@ curl -X DELETE -H "Authorization: Bearer $ADMIN_KEY" \
 
 ---
 
+## 6. Poison Message Handling (Dead-Letter Queue)
+
+### Symptoms
+- Metric: `penshort_analytics_event_processed{status="dead_lettered"}` increasing
+- Same message ID appearing in logs repeatedly with parsing errors
+
+### Behavior
+The analytics worker automatically dead-letters messages that:
+- Have missing or invalid payload format
+- Fail JSON unmarshalling
+- Fail payload validation (missing required fields)
+
+Dead-lettered messages are moved to `stream:click_events:dlq` with metadata:
+- `original_id`: Original Redis stream message ID
+- `reason`: Category (invalid_format, unmarshal_error, validation_error)
+- `detail`: Error description
+- `dead_lettered_at`: Timestamp
+
+### Triage
+
+```bash
+# Check DLQ depth
+redis-cli XLEN stream:click_events:dlq
+
+# View recent DLQ messages
+redis-cli XRANGE stream:click_events:dlq - + COUNT 10
+
+# Check dead-letter rate
+curl -s http://localhost:8080/metrics | grep dead_lettered
+```
+
+### Resolution
+
+| Cause | Action |
+|-------|--------|
+| Publisher bug | Fix publisher, messages already in DLQ are unrecoverable |
+| Schema change | DLQ messages from old schema should be ignored |
+| Malformed client | Investigate source, fix client |
+
+**Reprocessing DLQ** (if message format has been fixed):
+```bash
+# Manual inspection - decide per-message
+redis-cli XRANGE stream:click_events:dlq - + COUNT 100
+# Manually republish valid messages or discard
+```
+
+---
+
+## 7. Graceful Shutdown
+
+### Behavior
+On SIGTERM/SIGINT:
+1. HTTP server stops accepting new connections
+2. In-flight HTTP requests complete (up to shutdown timeout)
+3. Analytics worker drains current batch
+4. Resources (DB connections, Redis) are closed
+
+### Verification
+
+```bash
+# Trigger graceful shutdown
+docker compose kill -s SIGTERM api
+
+# Verify in logs
+docker logs penshort-api | grep -E "(shutting down|shutdown complete|stopping)"
+```
+
+### Troubleshooting
+
+| Issue | Cause | Action |
+|-------|-------|--------|
+| Shutdown timeout | Long-running request or batch | Increase shutdown timeout in config |
+| Data loss | Worker killed before batch ACK | Monitor pending messages, they will be reclaimed |
+
+---
+
 ## Alerting Thresholds
 
 | Alert | Condition | Severity |
@@ -252,6 +328,7 @@ curl -X DELETE -H "Authorization: Bearer $ADMIN_KEY" \
 | RedisDown | readyz{redis} != ok for 1m | Critical |
 | PostgresDown | readyz{postgres} != ok for 1m | Critical |
 | WebhookFailureStorm | webhook_failed_rate > 50% for 5m | Warning |
+| PoisonMessageSpike | dead_lettered_rate > 10/min for 5m | Warning |
 
 ---
 

@@ -9,7 +9,6 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
@@ -86,14 +85,6 @@ func main() {
 	// Setup router
 	r := setupRouter(h, healthHandler, metricsHandler, linkHandler, analyticsHandler, redirectHandler, apiKeyHandler, adminHandler, repo, cacheClient, cfg, logger)
 
-	// Start analytics worker in the background.
-	workerCtx, workerCancel := context.WithCancel(context.Background())
-	workerErr := make(chan error, 1)
-	worker := analytics.NewWorker(cacheClient.Client(), clickEventRepo, logger, analytics.NewConsumerID(), metricsRecorder)
-	go func() {
-		workerErr <- worker.Run(workerCtx)
-	}()
-
 	// Create and run server
 	srv := server.New(
 		r,
@@ -104,6 +95,19 @@ func main() {
 		logger,
 	)
 
+	// Start analytics worker in the background.
+	worker := analytics.NewWorker(cacheClient.Client(), clickEventRepo, logger, analytics.NewConsumerID(), metricsRecorder)
+
+	// Register worker for graceful shutdown (called after HTTP server stops)
+	srv.OnShutdown("analytics-worker", worker.Shutdown)
+
+	// Start worker in background
+	go func() {
+		if err := worker.Run(context.Background()); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error("analytics worker stopped unexpectedly", "error", err)
+		}
+	}()
+
 	logger.Info("starting server",
 		"port", cfg.AppPort,
 		"base_url", cfg.BaseURL,
@@ -111,27 +115,8 @@ func main() {
 	)
 
 	if err := srv.Run(); err != nil {
-		workerCancel()
-		select {
-		case err := <-workerErr:
-			if err != nil && !errors.Is(err, context.Canceled) {
-				logger.Error("analytics worker stopped", "error", err)
-			}
-		case <-time.After(5 * time.Second):
-			logger.Warn("analytics worker shutdown timed out")
-		}
 		logger.Error("server error", "error", err)
 		os.Exit(1)
-	}
-
-	workerCancel()
-	select {
-	case err := <-workerErr:
-		if err != nil && !errors.Is(err, context.Canceled) {
-			logger.Error("analytics worker stopped", "error", err)
-		}
-	case <-time.After(5 * time.Second):
-		logger.Warn("analytics worker shutdown timed out")
 	}
 }
 

@@ -1,0 +1,1004 @@
+openapi: 3.0.3
+info:
+  title: Penshort API
+  description: |
+    Developer-focused URL shortener API for API-first workflows.
+    
+    ## Authentication
+    All API endpoints (except redirect and health checks) require an API key via `Authorization: Bearer <api_key>` header.
+    
+    ## Rate Limiting
+    Rate limits are applied per API key. Headers included in responses:
+    - `X-RateLimit-Limit`: Requests allowed per minute
+    - `X-RateLimit-Remaining`: Requests remaining in window
+    - `X-RateLimit-Reset`: Unix timestamp when limit resets
+  version: 1.0.0
+  contact:
+    name: Penshort Team
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: Links
+    description: Link management (create, read, update, delete)
+  - name: Redirect
+    description: URL redirection
+  - name: Analytics
+    description: Click analytics and statistics
+  - name: Webhooks
+    description: Webhook management and delivery tracking
+  - name: API Keys
+    description: API key management
+  - name: Health
+    description: Health and readiness checks
+
+paths:
+  # ============================================================
+  # Links
+  # ============================================================
+  /api/v1/links:
+    post:
+      tags: [Links]
+      summary: Create a short link
+      operationId: createLink
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLinkRequest'
+            example:
+              destination: "https://example.com/very/long/path"
+              alias: "my-link"
+              redirect_type: 302
+              expires_at: "2026-12-31T23:59:59Z"
+      responses:
+        '201':
+          description: Link created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalidDestination:
+                  value: { error: "Invalid destination URL", code: "INVALID_DESTINATION" }
+                invalidAlias:
+                  value: { error: "Invalid alias format", code: "INVALID_ALIAS" }
+        '409':
+          description: Alias already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Alias already exists"
+                code: "ALIAS_TAKEN"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+    get:
+      tags: [Links]
+      summary: List links
+      operationId: listLinks
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: cursor
+          in: query
+          description: Pagination cursor from previous response
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Number of items per page (1-100)
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+        - name: status
+          in: query
+          description: Filter by status
+          schema:
+            type: string
+            enum: [active, expired, disabled]
+        - name: created_after
+          in: query
+          description: Filter by creation date (RFC3339)
+          schema:
+            type: string
+            format: date-time
+        - name: created_before
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: List of links
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /api/v1/links/{id}:
+    get:
+      tags: [Links]
+      summary: Get a link by ID
+      operationId: getLink
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/LinkId'
+      responses:
+        '200':
+          description: Link details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    patch:
+      tags: [Links]
+      summary: Update a link
+      operationId: updateLink
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/LinkId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateLinkRequest'
+      responses:
+        '200':
+          description: Link updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    delete:
+      tags: [Links]
+      summary: Delete a link (soft delete)
+      operationId: deleteLink
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/LinkId'
+      responses:
+        '204':
+          description: Link deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ============================================================
+  # Redirect
+  # ============================================================
+  /{shortCode}:
+    get:
+      tags: [Redirect]
+      summary: Redirect to destination URL
+      operationId: redirect
+      parameters:
+        - name: shortCode
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9_-]{3,50}$'
+      responses:
+        '301':
+          description: Permanent redirect
+          headers:
+            Location:
+              schema:
+                type: string
+        '302':
+          description: Temporary redirect
+          headers:
+            Location:
+              schema:
+                type: string
+        '404':
+          description: Link not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Link not found"
+                code: "LINK_NOT_FOUND"
+        '410':
+          description: Link expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Link has expired"
+                code: "LINK_EXPIRED"
+
+  # ============================================================
+  # Analytics
+  # ============================================================
+  /api/v1/links/{id}/analytics:
+    get:
+      tags: [Analytics]
+      summary: Get link analytics
+      operationId: getLinkAnalytics
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/LinkId'
+        - name: from
+          in: query
+          description: Start date (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          description: End date (YYYY-MM-DD)
+          schema:
+            type: string
+            format: date
+        - name: include
+          in: query
+          description: Comma-separated breakdown types
+          schema:
+            type: string
+            default: "referrers,countries,daily"
+      responses:
+        '200':
+          description: Analytics data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyticsResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ============================================================
+  # Webhooks
+  # ============================================================
+  /api/v1/webhooks:
+    post:
+      tags: [Webhooks]
+      summary: Create a webhook
+      operationId: createWebhook
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookRequest'
+      responses:
+        '201':
+          description: Webhook created (secret shown only once)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookWithSecretResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    get:
+      tags: [Webhooks]
+      summary: List webhooks
+      operationId: listWebhooks
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of webhooks
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/webhooks/{id}:
+    get:
+      tags: [Webhooks]
+      summary: Get webhook details
+      operationId: getWebhook
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WebhookId'
+      responses:
+        '200':
+          description: Webhook details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Webhooks]
+      summary: Update webhook
+      operationId: updateWebhook
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WebhookId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWebhookRequest'
+      responses:
+        '200':
+          description: Webhook updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Webhooks]
+      summary: Delete webhook
+      operationId: deleteWebhook
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WebhookId'
+      responses:
+        '204':
+          description: Webhook deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/webhooks/{id}/rotate-secret:
+    post:
+      tags: [Webhooks]
+      summary: Rotate webhook secret
+      operationId: rotateWebhookSecret
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WebhookId'
+      responses:
+        '200':
+          description: Secret rotated (new secret shown only once)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookWithSecretResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/webhooks/{id}/deliveries:
+    get:
+      tags: [Webhooks]
+      summary: List webhook deliveries
+      operationId: listWebhookDeliveries
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WebhookId'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, delivered, failed, exhausted]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: List of deliveries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliveryListResponse'
+
+  /api/v1/webhooks/{id}/deliveries/{deliveryId}/retry:
+    post:
+      tags: [Webhooks]
+      summary: Retry a failed delivery
+      operationId: retryWebhookDelivery
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/WebhookId'
+        - name: deliveryId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Retry scheduled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliveryResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================
+  # API Keys
+  # ============================================================
+  /api/v1/api-keys:
+    post:
+      tags: [API Keys]
+      summary: Create API key
+      operationId: createApiKey
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateApiKeyRequest'
+      responses:
+        '201':
+          description: API key created (raw key shown only once)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyWithSecretResponse'
+
+    get:
+      tags: [API Keys]
+      summary: List API keys
+      operationId: listApiKeys
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of API keys (secrets not shown)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyListResponse'
+
+  /api/v1/api-keys/{keyId}:
+    delete:
+      tags: [API Keys]
+      summary: Revoke API key
+      operationId: revokeApiKey
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: keyId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Key revoked
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/api-keys/{keyId}/rotate:
+    post:
+      tags: [API Keys]
+      summary: Rotate API key
+      operationId: rotateApiKey
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: keyId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Key rotated (new key shown only once)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyWithSecretResponse'
+
+  # ============================================================
+  # Health
+  # ============================================================
+  /healthz:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      operationId: healthz
+      responses:
+        '200':
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+
+  /readyz:
+    get:
+      tags: [Health]
+      summary: Readiness probe
+      operationId: readyz
+      responses:
+        '200':
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+        '503':
+          description: Service not ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+
+  /metrics:
+    get:
+      tags: [Health]
+      summary: Prometheus metrics
+      operationId: metrics
+      responses:
+        '200':
+          description: Prometheus exposition format
+          content:
+            text/plain:
+              schema:
+                type: string
+
+# ============================================================
+# Components
+# ============================================================
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: API key in format `psk_live_*` or `psk_test_*`
+
+  parameters:
+    LinkId:
+      name: id
+      in: path
+      required: true
+      description: Link ID (ULID format)
+      schema:
+        type: string
+    WebhookId:
+      name: id
+      in: path
+      required: true
+      description: Webhook ID
+      schema:
+        type: string
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "Unauthorized"
+            code: "UNAUTHORIZED"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "Resource not found"
+            code: "NOT_FOUND"
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RateLimited:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+        X-RateLimit-Limit:
+          schema:
+            type: integer
+        X-RateLimit-Remaining:
+          schema:
+            type: integer
+        X-RateLimit-Reset:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: "Rate limit exceeded. Retry after 60 seconds."
+            code: "RATE_LIMITED"
+
+  schemas:
+    # ---------- Links ----------
+    CreateLinkRequest:
+      type: object
+      required: [destination]
+      properties:
+        destination:
+          type: string
+          format: uri
+          maxLength: 2048
+          description: Target URL (must be http or https)
+        alias:
+          type: string
+          pattern: '^[a-zA-Z0-9_-]{3,50}$'
+          description: Custom short code (optional)
+        redirect_type:
+          type: integer
+          enum: [301, 302]
+          default: 302
+        expires_at:
+          type: string
+          format: date-time
+          description: Expiration time (ISO8601)
+
+    UpdateLinkRequest:
+      type: object
+      properties:
+        destination:
+          type: string
+          format: uri
+        redirect_type:
+          type: integer
+          enum: [301, 302]
+        expires_at:
+          type: string
+          format: date-time
+        enabled:
+          type: boolean
+
+    LinkResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        short_code:
+          type: string
+        short_url:
+          type: string
+          format: uri
+        destination:
+          type: string
+          format: uri
+        redirect_type:
+          type: integer
+        expires_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [active, expired, disabled]
+        click_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    LinkListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/LinkResponse'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    Pagination:
+      type: object
+      properties:
+        next_cursor:
+          type: string
+        has_more:
+          type: boolean
+
+    # ---------- Analytics ----------
+    AnalyticsResponse:
+      type: object
+      properties:
+        link_id:
+          type: string
+        period:
+          type: object
+          properties:
+            from:
+              type: string
+              format: date
+            to:
+              type: string
+              format: date
+        summary:
+          type: object
+          properties:
+            total_clicks:
+              type: integer
+            unique_visitors:
+              type: integer
+        breakdown:
+          type: object
+          properties:
+            daily:
+              type: array
+              items:
+                type: object
+                properties:
+                  date:
+                    type: string
+                  total_clicks:
+                    type: integer
+                  unique_visitors:
+                    type: integer
+            referrers:
+              type: array
+              items:
+                type: object
+                properties:
+                  domain:
+                    type: string
+                  clicks:
+                    type: integer
+            countries:
+              type: array
+              items:
+                type: object
+                properties:
+                  code:
+                    type: string
+                  name:
+                    type: string
+                  clicks:
+                    type: integer
+        generated_at:
+          type: string
+          format: date-time
+
+    # ---------- Webhooks ----------
+    CreateWebhookRequest:
+      type: object
+      required: [url, events]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: HTTPS endpoint to receive events
+        events:
+          type: array
+          items:
+            type: string
+            enum: [click]
+        link_id:
+          type: string
+          description: Scope to specific link (optional)
+
+    UpdateWebhookRequest:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+
+    WebhookResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        url:
+          type: string
+        events:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+        link_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    WebhookWithSecretResponse:
+      allOf:
+        - $ref: '#/components/schemas/WebhookResponse'
+        - type: object
+          properties:
+            secret:
+              type: string
+              description: "⚠️ Shown only once. Store securely."
+
+    WebhookListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebhookResponse'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    DeliveryResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        webhook_id:
+          type: string
+        event_type:
+          type: string
+        status:
+          type: string
+          enum: [pending, delivered, failed, exhausted]
+        attempts:
+          type: integer
+        last_attempt_at:
+          type: string
+          format: date-time
+        next_retry_at:
+          type: string
+          format: date-time
+        response_status:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    DeliveryListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeliveryResponse'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    # ---------- API Keys ----------
+    CreateApiKeyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        scopes:
+          type: array
+          items:
+            type: string
+            enum: [links:read, links:write, analytics:read, webhooks:manage]
+
+    ApiKeyResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        prefix:
+          type: string
+          description: First 8 characters of the key
+        scopes:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+
+    ApiKeyWithSecretResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiKeyResponse'
+        - type: object
+          properties:
+            key:
+              type: string
+              description: "⚠️ Shown only once. Format: psk_live_* or psk_test_*"
+
+    ApiKeyListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApiKeyResponse'
+
+    # ---------- Health ----------
+    ReadinessResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, unhealthy]
+        checks:
+          type: object
+          properties:
+            postgres:
+              type: string
+            redis:
+              type: string
+
+    # ---------- Common ----------
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        code:
+          type: string

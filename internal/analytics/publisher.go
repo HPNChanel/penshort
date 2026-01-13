@@ -21,6 +21,9 @@ const (
 	// StreamKey is the Redis stream for click events.
 	StreamKey = "stream:click_events"
 
+	// DeadLetterStreamKey is the Redis stream for poison messages.
+	DeadLetterStreamKey = "stream:click_events:dlq"
+
 	// MaxStreamLen is the approximate max length of the stream.
 	MaxStreamLen = 100000
 

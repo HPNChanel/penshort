@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -61,7 +62,11 @@ type Worker struct {
 	lastClaim       time.Time
 	lastMetrics     time.Time
 
-	started bool
+	started  bool
+	draining bool
+	cancel   context.CancelFunc
+	done     chan struct{}
+	mu       sync.Mutex
 }
 
 // NewWorker creates a new analytics worker.
@@ -87,10 +92,17 @@ func NewWorker(client *redis.Client, repo Repository, logger *slog.Logger, consu
 
 // Run starts the worker loop. Blocks until context is cancelled.
 func (w *Worker) Run(ctx context.Context) error {
+	w.mu.Lock()
 	if w.started {
+		w.mu.Unlock()
 		return errors.New("worker already started")
 	}
 	w.started = true
+	w.done = make(chan struct{})
+	ctx, w.cancel = context.WithCancel(ctx)
+	w.mu.Unlock()
+
+	defer close(w.done)
 
 	// Ensure consumer group exists
 	if err := w.ensureConsumerGroup(ctx); err != nil {
@@ -100,6 +112,15 @@ func (w *Worker) Run(ctx context.Context) error {
 	w.logger.Info("analytics worker started")
 
 	for {
+		w.mu.Lock()
+		draining := w.draining
+		w.mu.Unlock()
+
+		if draining {
+			w.logger.Info("analytics worker draining, stopping")
+			return nil
+		}
+
 		select {
 		case <-ctx.Done():
 			w.logger.Info("analytics worker stopping")
@@ -114,6 +135,40 @@ func (w *Worker) Run(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// Shutdown gracefully stops the worker, completing any in-flight batch.
+// It implements server.ShutdownFunc for integration with graceful shutdown.
+func (w *Worker) Shutdown(ctx context.Context) error {
+	w.mu.Lock()
+	if !w.started {
+		w.mu.Unlock()
+		return nil
+	}
+	w.draining = true
+	cancel := w.cancel
+	done := w.done
+	w.mu.Unlock()
+
+	w.logger.Info("analytics worker shutdown initiated")
+
+	// Signal the worker to stop
+	if cancel != nil {
+		cancel()
+	}
+
+	// Wait for worker to finish or context timeout
+	if done != nil {
+		select {
+		case <-done:
+			w.logger.Info("analytics worker shutdown complete")
+			return nil
+		case <-ctx.Done():
+			w.logger.Warn("analytics worker shutdown timed out")
+			return ctx.Err()
+		}
+	}
+	return nil
 }
 
 // ensureConsumerGroup creates the consumer group if it doesn't exist.
@@ -146,7 +201,7 @@ func (w *Worker) processOnce(ctx context.Context) error {
 		return nil
 	}
 
-	events, messageIDs := w.parseMessages(messages)
+	events, messageIDs := w.parseMessages(ctx, messages)
 	if len(events) == 0 {
 		// All messages were malformed, ACK them anyway to not block
 		return w.ackMessages(ctx, messageIDs)
@@ -273,7 +328,8 @@ func (w *Worker) readBatch(ctx context.Context) ([]redis.XMessage, error) {
 }
 
 // parseMessages converts Redis messages to ClickEvent models.
-func (w *Worker) parseMessages(messages []redis.XMessage) ([]*model.ClickEvent, []string) {
+// Malformed or invalid messages are moved to the dead-letter queue.
+func (w *Worker) parseMessages(ctx context.Context, messages []redis.XMessage) ([]*model.ClickEvent, []string) {
 	events := make([]*model.ClickEvent, 0, len(messages))
 	messageIDs := make([]string, 0, len(messages))
 
@@ -282,20 +338,17 @@ func (w *Worker) parseMessages(messages []redis.XMessage) ([]*model.ClickEvent, 
 
 		payload, ok := msg.Values["payload"].(string)
 		if !ok {
-			w.logger.Warn("invalid message format", "message_id", msg.ID)
-			w.metrics.IncAnalyticsEventProcessed("skipped")
+			w.deadLetterMessage(ctx, msg, "invalid_format", "payload field missing or not a string")
 			continue
 		}
 
 		var eventPayload ClickEventPayload
 		if err := json.Unmarshal([]byte(payload), &eventPayload); err != nil {
-			w.logger.Warn("failed to unmarshal event", "message_id", msg.ID, "error", err)
-			w.metrics.IncAnalyticsEventProcessed("skipped")
+			w.deadLetterMessage(ctx, msg, "unmarshal_error", err.Error())
 			continue
 		}
 		if err := ValidateClickEventPayload(eventPayload); err != nil {
-			w.logger.Warn("invalid click event payload", "message_id", msg.ID, "error", err)
-			w.metrics.IncAnalyticsEventProcessed("skipped")
+			w.deadLetterMessage(ctx, msg, "validation_error", err.Error())
 			continue
 		}
 
@@ -315,6 +368,40 @@ func (w *Worker) parseMessages(messages []redis.XMessage) ([]*model.ClickEvent, 
 	}
 
 	return events, messageIDs
+}
+
+// deadLetterMessage moves a poison message to the dead-letter queue.
+func (w *Worker) deadLetterMessage(ctx context.Context, msg redis.XMessage, reason, detail string) {
+	w.logger.Warn("dead-lettering poison message",
+		"message_id", msg.ID,
+		"reason", reason,
+		"detail", detail,
+	)
+
+	// Write to dead-letter stream with metadata
+	_, err := w.redis.XAdd(ctx, &redis.XAddArgs{
+		Stream: DeadLetterStreamKey,
+		MaxLen: 10000, // Keep last 10k poison messages
+		Approx: true,
+		ID:     "*",
+		Values: map[string]interface{}{
+			"original_id":    msg.ID,
+			"original_stream": StreamKey,
+			"reason":         reason,
+			"detail":         detail,
+			"payload":        msg.Values["payload"],
+			"dead_lettered_at": time.Now().UTC().Format(time.RFC3339),
+		},
+	}).Result()
+
+	if err != nil {
+		w.logger.Error("failed to write to dead-letter queue",
+			"message_id", msg.ID,
+			"error", err,
+		)
+	}
+
+	w.metrics.IncAnalyticsEventProcessed("dead_lettered")
 }
 
 // processBatchWithRetry attempts to process a batch with exponential backoff.

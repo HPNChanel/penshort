@@ -60,6 +60,11 @@ func Security(cfg SecurityConfig) func(http.Handler) http.Handler {
 			// === Permissions Policy (disable unused browser features) ===
 			w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=(), payment=(), usb=()")
 
+			// === Cross-Origin Isolation (Spectre mitigation) ===
+			// same-origin prevents cross-origin information leakage
+			w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+			w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
+
 			// === HSTS (only in production with HTTPS) ===
 			// max-age=31536000 = 1 year
 			// includeSubDomains ensures all subdomains use HTTPS

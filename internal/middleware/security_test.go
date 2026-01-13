@@ -64,6 +64,20 @@ func TestSecurity(t *testing.T) {
 			wantPresent: true,
 			wantValue:   "no-store",
 		},
+		{
+			name:        "Cross-Origin-Opener-Policy is set",
+			isDev:       false,
+			checkHeader: "Cross-Origin-Opener-Policy",
+			wantPresent: true,
+			wantValue:   "same-origin",
+		},
+		{
+			name:        "Cross-Origin-Resource-Policy is set",
+			isDev:       false,
+			checkHeader: "Cross-Origin-Resource-Policy",
+			wantPresent: true,
+			wantValue:   "same-origin",
+		},
 	}
 
 	for _, tt := range tests {
