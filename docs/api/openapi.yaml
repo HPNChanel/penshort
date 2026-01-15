@@ -325,16 +325,6 @@ paths:
       operationId: listWebhooks
       security:
         - bearerAuth: []
-      parameters:
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            default: 20
-        - name: cursor
-          in: query
-          schema:
-            type: string
       responses:
         '200':
           description: List of webhooks
@@ -417,7 +407,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/WebhookWithSecretResponse'
+                $ref: '#/components/schemas/WebhookSecretResponse'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -432,14 +422,27 @@ paths:
         - $ref: '#/components/parameters/WebhookId'
         - name: status
           in: query
+          description: Filter by status (repeatable)
+          style: form
+          explode: true
           schema:
-            type: string
-            enum: [pending, delivered, failed, exhausted]
-        - name: limit
+            type: array
+            items:
+              type: string
+              enum: [pending, success, failed, exhausted]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        - name: per_page
           in: query
           schema:
             type: integer
             default: 20
+            minimum: 1
+            maximum: 100
       responses:
         '200':
           description: List of deliveries
@@ -510,7 +513,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ApiKeyListResponse'
 
-  /api/v1/api-keys/{keyId}:
+  /api/v1/api-keys/{key_id}:
     delete:
       tags: [API Keys]
       summary: Revoke API key
@@ -518,7 +521,7 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - name: keyId
+        - name: key_id
           in: path
           required: true
           schema:
@@ -529,7 +532,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/api-keys/{keyId}/rotate:
+  /api/v1/api-keys/{key_id}/rotate:
     post:
       tags: [API Keys]
       summary: Rotate API key
@@ -537,13 +540,13 @@ paths:
       security:
         - bearerAuth: []
       parameters:
-        - name: keyId
+        - name: key_id
           in: path
           required: true
           schema:
             type: string
       responses:
-        '200':
+        '201':
           description: Key rotated (new key shown only once)
           content:
             application/json:
@@ -610,7 +613,7 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      description: API key in format `psk_live_*` or `psk_test_*`
+      description: API key in format `pk_live_{prefix}_{secret}` or `pk_test_{prefix}_{secret}`
 
   parameters:
     LinkId:
@@ -826,50 +829,60 @@ components:
     # ---------- Webhooks ----------
     CreateWebhookRequest:
       type: object
-      required: [url, events]
+      required: [target_url]
       properties:
-        url:
+        target_url:
           type: string
           format: uri
           description: HTTPS endpoint to receive events
-        events:
+        event_types:
           type: array
           items:
             type: string
             enum: [click]
-        link_id:
+        name:
           type: string
-          description: Scope to specific link (optional)
+        description:
+          type: string
 
     UpdateWebhookRequest:
       type: object
       properties:
-        url:
+        target_url:
           type: string
           format: uri
-        events:
+        event_types:
           type: array
           items:
             type: string
         enabled:
           type: boolean
+        name:
+          type: string
+        description:
+          type: string
 
     WebhookResponse:
       type: object
       properties:
         id:
           type: string
-        url:
+        name:
           type: string
-        events:
+        description:
+          type: string
+        target_url:
+          type: string
+        event_types:
           type: array
           items:
             type: string
         enabled:
           type: boolean
-        link_id:
-          type: string
         created_at:
+          type: string
+          format: date-time
+        updated_at:
           type: string
           format: date-time
 
@@ -880,31 +893,39 @@ components:
           properties:
             secret:
               type: string
-              description: "⚠️ Shown only once. Store securely."
+              description: Shown only once. Store securely.
+
+    WebhookSecretResponse:
+      type: object
+      required: [secret]
+      properties:
+        secret:
+          type: string
+          description: Shown only once. Store securely.
 
     WebhookListResponse:
       type: object
       properties:
-        data:
+        webhooks:
           type: array
           items:
             $ref: '#/components/schemas/WebhookResponse'
-        pagination:
-          $ref: '#/components/schemas/Pagination'
 
     DeliveryResponse:
       type: object
       properties:
         id:
           type: string
-        webhook_id:
+        event_id:
           type: string
         event_type:
           type: string
         status:
           type: string
-          enum: [pending, delivered, failed, exhausted]
-        attempts:
+          enum: [pending, success, failed, exhausted]
+        attempt_count:
+          type: integer
+        max_attempts:
           type: integer
         last_attempt_at:
           type: string
@@ -912,8 +933,10 @@ components:
         next_retry_at:
           type: string
           format: date-time
-        response_status:
+        last_http_status:
           type: integer
+        last_error:
+          type: string
         created_at:
           type: string
           format: date-time
@@ -921,13 +944,19 @@ components:
     DeliveryListResponse:
       type: object
       properties:
-        data:
+        deliveries:
           type: array
           items:
             $ref: '#/components/schemas/DeliveryResponse'
         pagination:
-          $ref: '#/components/schemas/Pagination'
-
+          type: object
+          properties:
+            total:
+              type: integer
+            page:
+              type: integer
+            per_page:
+              type: integer
     # ---------- API Keys ----------
     CreateApiKeyRequest:
       type: object
@@ -939,7 +968,7 @@ components:
           type: array
           items:
             type: string
-            enum: [links:read, links:write, analytics:read, webhooks:manage]
+            enum: [read, write, webhook, admin]
 
     ApiKeyResponse:
       type: object
@@ -948,19 +977,22 @@ components:
           type: string
         name:
           type: string
-        prefix:
+        key_prefix:
           type: string
-          description: First 8 characters of the key
         scopes:
           type: array
           items:
             type: string
+        rate_limit_tier:
+          type: string
         created_at:
           type: string
           format: date-time
         last_used_at:
           type: string
           format: date-time
+        revoked:
+          type: boolean
 
     ApiKeyWithSecretResponse:
       allOf:
@@ -969,16 +1001,15 @@ components:
           properties:
             key:
               type: string
-              description: "⚠️ Shown only once. Format: psk_live_* or psk_test_*"
+              description: Shown only once. Format: pk_live_* or pk_test_*
 
     ApiKeyListResponse:
       type: object
       properties:
-        data:
+        keys:
           type: array
           items:
             $ref: '#/components/schemas/ApiKeyResponse'
-
     # ---------- Health ----------
     ReadinessResponse:
       type: object

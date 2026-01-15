@@ -1,12 +1,10 @@
 // Penshort Webhook Receiver Example
 //
-// This is a minimal example of how to receive and verify Penshort webhooks.
-//
 // Usage:
-//   export PENSHORT_WEBHOOK_SECRET="whsec_your_secret_here"
+//   export PENSHORT_WEBHOOK_SECRET="your_secret_here"
 //   go run main.go
 //
-// Then configure your Penshort webhook to point to http://your-server:9000/webhook
+// Then configure your webhook to point to http://host.docker.internal:9000/webhook
 
 package main
 
@@ -22,23 +20,19 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 )
 
-// ClickEvent represents the webhook payload for click events
-type ClickEvent struct {
-	Event     string  `json:"event"`
-	LinkID    string  `json:"link_id"`
-	ShortCode string  `json:"short_code"`
-	Timestamp string  `json:"timestamp"`
-	Visitor   Visitor `json:"visitor"`
-}
-
-type Visitor struct {
-	Referrer    string `json:"referrer"`
-	UserAgent   string `json:"user_agent"`
-	CountryCode string `json:"country_code"`
+type WebhookPayload struct {
+	EventType string    `json:"event_type"`
+	EventID   string    `json:"event_id"`
+	Timestamp time.Time `json:"timestamp"`
+	Data      struct {
+		ShortCode   string `json:"short_code"`
+		LinkID      string `json:"link_id"`
+		Referrer    string `json:"referrer"`
+		CountryCode string `json:"country_code"`
+	} `json:"data"`
 }
 
 func main() {
@@ -62,7 +56,6 @@ func webhookHandler(secret string) http.HandlerFunc {
 			return
 		}
 
-		// Read body
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			log.Printf("Error reading body: %v", err)
@@ -71,87 +64,59 @@ func webhookHandler(secret string) http.HandlerFunc {
 		}
 		defer r.Body.Close()
 
-		// Get signature header
 		signature := r.Header.Get("X-Penshort-Signature")
-		if signature == "" {
-			log.Println("Missing X-Penshort-Signature header")
+		timestamp := r.Header.Get("X-Penshort-Timestamp")
+		deliveryID := r.Header.Get("X-Penshort-Delivery-Id")
+		if signature == "" || timestamp == "" {
+			log.Println("Missing signature headers")
 			http.Error(w, "Missing signature", http.StatusUnauthorized)
 			return
 		}
 
-		// Verify signature
-		if !verifySignature(signature, string(body), secret) {
+		if !verifySignature(signature, timestamp, body, secret) {
 			log.Println("Invalid signature")
 			http.Error(w, "Invalid signature", http.StatusUnauthorized)
 			return
 		}
 
-		// Parse event
-		var event ClickEvent
-		if err := json.Unmarshal(body, &event); err != nil {
+		var payload WebhookPayload
+		if err := json.Unmarshal(body, &payload); err != nil {
 			log.Printf("Error parsing JSON: %v", err)
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
 		}
 
-		// Process the event
-		log.Printf("✓ Received %s event for %s", event.Event, event.ShortCode)
-		log.Printf("  Link ID:  %s", event.LinkID)
-		log.Printf("  Time:     %s", event.Timestamp)
-		log.Printf("  Referrer: %s", event.Visitor.Referrer)
-		log.Printf("  Country:  %s", event.Visitor.CountryCode)
+		log.Printf("Received %s event for %s", payload.EventType, payload.Data.ShortCode)
+		log.Printf("  Delivery ID: %s", deliveryID)
+		log.Printf("  Link ID:     %s", payload.Data.LinkID)
+		log.Printf("  Timestamp:   %s", payload.Timestamp.Format(time.RFC3339))
+		log.Printf("  Referrer:    %s", payload.Data.Referrer)
+		log.Printf("  Country:     %s", payload.Data.CountryCode)
 
-		// Respond with 200 OK
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "received"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "received"})
 	}
 }
 
-// verifySignature verifies the HMAC-SHA256 signature from Penshort
-//
-// Header format: t=1705142400,v1=abc123def456...
-// Signed payload: {timestamp}.{body}
-func verifySignature(header, body, secret string) bool {
-	parts := strings.Split(header, ",")
-	if len(parts) != 2 {
-		return false
-	}
-
-	// Extract timestamp and signature
-	var timestamp, signature string
-	for _, part := range parts {
-		if strings.HasPrefix(part, "t=") {
-			timestamp = strings.TrimPrefix(part, "t=")
-		} else if strings.HasPrefix(part, "v1=") {
-			signature = strings.TrimPrefix(part, "v1=")
-		}
-	}
-
-	if timestamp == "" || signature == "" {
-		return false
-	}
-
-	// Check timestamp (±5 min tolerance)
+func verifySignature(signature, timestamp string, body []byte, secret string) bool {
 	ts, err := strconv.ParseInt(timestamp, 10, 64)
 	if err != nil {
 		return false
 	}
 	if math.Abs(float64(time.Now().Unix()-ts)) > 300 {
-		log.Println("Signature timestamp too old or in future")
 		return false
 	}
 
-	// Compute expected signature
-	signedPayload := timestamp + "." + body
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(signedPayload))
+	hash := sha256.Sum256([]byte(secret))
+	canonical := fmt.Sprintf("%d.%s", ts, string(body))
+	mac := hmac.New(sha256.New, hash[:])
+	mac.Write([]byte(canonical))
 	expected := hex.EncodeToString(mac.Sum(nil))
 
-	// Constant-time comparison
 	return hmac.Equal([]byte(signature), []byte(expected))
 }
 
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }

@@ -1,6 +1,6 @@
 # Webhooks
 
-Receive real-time notifications when clicks occur on your short links.
+Receive notifications when clicks occur on your short links.
 
 ## Create a Webhook
 
@@ -9,69 +9,64 @@ curl -X POST http://localhost:8080/api/v1/webhooks \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "url": "https://your-server.com/webhook",
-    "events": ["click"],
-    "link_id": "01HQXK5M7Y..."
+    "target_url": "https://your-server.com/webhook",
+    "event_types": ["click"],
+    "name": "My Webhook"
   }'
 ```
 
-Response (⚠️ secret shown **only once**):
+Response (secret shown only once):
+
 ```json
 {
   "id": "01HQWH...",
-  "url": "https://your-server.com/webhook",
-  "events": ["click"],
-  "link_id": "01HQXK5M7Y...",
+  "target_url": "https://your-server.com/webhook",
+  "event_types": ["click"],
   "enabled": true,
-  "secret": "whsec_a1b2c3d4e5f6...",
+  "secret": "4f8d2e1b9c7a5f3d...",
   "created_at": "2026-01-13T08:00:00Z"
 }
 ```
-
-> Omit `link_id` to receive events for all your links.
-
----
 
 ## Webhook Payload
 
 ```json
 {
-  "event": "click",
-  "link_id": "01HQXK5M7Y...",
-  "short_code": "abc123",
+  "event_type": "click",
+  "event_id": "01HQXK5M7Y...",
   "timestamp": "2026-01-13T08:30:00Z",
-  "visitor": {
-    "referrer": "twitter.com",
-    "user_agent": "Mozilla/5.0...",
+  "data": {
+    "short_code": "abc123",
+    "link_id": "01HQXK5M7Y...",
+    "referrer": "https://twitter.com/...",
     "country_code": "US"
   }
 }
 ```
 
----
+## Headers and Signature
 
-## Signature Verification
+Each delivery includes:
 
-Every webhook request includes an `X-Penshort-Signature` header for verification.
+- `X-Penshort-Signature`
+- `X-Penshort-Timestamp` (unix seconds)
+- `X-Penshort-Delivery-Id`
 
-### Header Format
+### Signature Format
+
+The canonical string is:
 
 ```
-X-Penshort-Signature: t=1705142400,v1=abc123def456...
+{timestamp}.{payloadJSON}
 ```
 
-| Part | Description |
-|------|-------------|
-| `t` | Unix timestamp when signature was created |
-| `v1` | HMAC-SHA256 signature |
+The signature is HMAC-SHA256 over the canonical string.
 
-### Verification Steps
+Because Penshort stores only a hash of the secret, the signing key is:
 
-1. **Extract timestamp and signature** from header
-2. **Build signed payload**: `{timestamp}.{request_body}`
-3. **Compute expected signature**: `HMAC-SHA256(secret, signed_payload)`
-4. **Compare signatures** using constant-time comparison
-5. **Check timestamp** is within ±5 minutes (prevents replay attacks)
+```
+sha256(secret)
+```
 
 ### Example (Go)
 
@@ -80,94 +75,41 @@ import (
     "crypto/hmac"
     "crypto/sha256"
     "encoding/hex"
-    "math"
     "strconv"
-    "strings"
-    "time"
 )
 
-func VerifySignature(header, body, secret string) bool {
-    parts := strings.Split(header, ",")
-    if len(parts) != 2 {
-        return false
-    }
-    
-    timestamp := strings.TrimPrefix(parts[0], "t=")
-    signature := strings.TrimPrefix(parts[1], "v1=")
-    
-    // Check timestamp (±5 min tolerance)
-    ts, _ := strconv.ParseInt(timestamp, 10, 64)
-    if math.Abs(float64(time.Now().Unix()-ts)) > 300 {
-        return false
-    }
-    
-    // Compute expected signature
-    signedPayload := timestamp + "." + body
-    mac := hmac.New(sha256.New, []byte(secret))
-    mac.Write([]byte(signedPayload))
+func verifySignature(secret, signature string, timestamp int64, payload []byte) bool {
+    sum := sha256.Sum256([]byte(secret))
+    canonical := strconv.FormatInt(timestamp, 10) + "." + string(payload)
+    mac := hmac.New(sha256.New, sum[:])
+    mac.Write([]byte(canonical))
     expected := hex.EncodeToString(mac.Sum(nil))
-    
     return hmac.Equal([]byte(signature), []byte(expected))
 }
 ```
 
-### Example (Node.js)
-
-```javascript
-const crypto = require('crypto');
-
-function verifySignature(header, body, secret) {
-  const [tPart, v1Part] = header.split(',');
-  const timestamp = tPart.replace('t=', '');
-  const signature = v1Part.replace('v1=', '');
-  
-  // Check timestamp (±5 min tolerance)
-  const now = Math.floor(Date.now() / 1000);
-  if (Math.abs(now - parseInt(timestamp)) > 300) {
-    return false;
-  }
-  
-  // Compute expected signature
-  const signedPayload = `${timestamp}.${body}`;
-  const expected = crypto
-    .createHmac('sha256', secret)
-    .update(signedPayload)
-    .digest('hex');
-  
-  return crypto.timingSafeEqual(
-    Buffer.from(signature),
-    Buffer.from(expected)
-  );
-}
-```
-
----
-
 ## Retry Policy
 
-Failed deliveries are retried with exponential backoff:
+Retries use exponential backoff with jitter:
 
-| Attempt | Delay | Cumulative |
-|---------|-------|------------|
-| 1 | Immediate | 0s |
-| 2 | 1s | 1s |
-| 3 | 2s | 3s |
-| 4 | 4s | 7s |
-| 5 | 8s | 15s |
-| 6 (final) | 16s | 31s |
+| Attempt | Delay |
+|---------|-------|
+| 1 | 1 minute |
+| 2 | 5 minutes |
+| 3 | 30 minutes |
+| 4 | 2 hours |
+| 5 | 12 hours |
 
-After 5 failed retries, the delivery moves to `exhausted` state.
+After 5 failed attempts, the delivery moves to `exhausted` state.
 
 ### Delivery States
 
 | State | Description |
 |-------|-------------|
 | `pending` | Queued for delivery |
-| `delivered` | Successfully delivered (2xx response) |
+| `success` | Delivered (2xx response) |
 | `failed` | Last attempt failed, will retry |
 | `exhausted` | All retries failed |
-
----
 
 ## Manage Webhooks
 
@@ -208,12 +150,16 @@ curl -X POST -H "Authorization: Bearer $API_KEY" \
   http://localhost:8080/api/v1/webhooks/{id}/deliveries/{delivery_id}/retry
 ```
 
----
+## Local Development
+
+Webhook targets are validated strictly by default (HTTPS only, public IPs only, port 443). For local testing,
+set `WEBHOOK_ALLOW_INSECURE=true` to allow `http://localhost`, `http://127.0.0.1`, or `http://host.docker.internal`.
+Do not enable this setting in production.
 
 ## Best Practices
 
-1. **Verify signatures** — Always validate before processing
-2. **Respond quickly** — Return 200 within 5 seconds
-3. **Idempotency** — Handle duplicate deliveries gracefully
-4. **Use HTTPS** — Required for production endpoints
-5. **Monitor failures** — Set up alerts for `exhausted` deliveries
+1. Verify signatures before processing
+2. Respond within 5 seconds
+3. Handle duplicate deliveries idempotently
+4. Use HTTPS for production endpoints
+5. Monitor `exhausted` deliveries

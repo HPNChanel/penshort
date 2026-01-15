@@ -19,13 +19,13 @@ chmod +x docs/examples/e2e/e2e-smoke-test.sh
 ```
 
 The script will:
-1. ✅ Check health endpoints
-2. ✅ Create an API key
-3. ✅ Create a short link
-4. ✅ Test redirect (302)
-5. ✅ Generate test clicks
-6. ✅ Query analytics
-7. ✅ Cleanup (disable link)
+1. Check health endpoints
+2. Bootstrap an API key (if API_KEY is not set)
+3. Create a short link
+4. Test redirect (302)
+5. Generate test clicks
+6. Query analytics
+7. Cleanup (disable link)
 
 ## Manual Step-by-Step
 
@@ -36,21 +36,18 @@ docker compose up -d
 curl -fsS http://localhost:8080/readyz
 ```
 
-### 2. Create API Key
+### 2. Bootstrap an Admin API Key
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/api-keys \
-  -H "Content-Type: application/json" \
-  -d '{"name": "My Key", "scopes": ["links:read", "links:write", "analytics:read"]}'
+export DATABASE_URL="postgres://penshort:penshort@localhost:5432/penshort?sslmode=disable"
+API_KEY=$(go run ./scripts/bootstrap-api-key.go -database-url "$DATABASE_URL" -format plain)
 ```
 
-Save the returned key — it's shown only once!
+Save the returned key; it is shown only once.
 
 ### 3. Create Short Link
 
 ```bash
-export API_KEY="psk_live_your_key_here"
-
 curl -X POST http://localhost:8080/api/v1/links \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
@@ -74,5 +71,5 @@ curl -H "Authorization: Bearer $API_KEY" \
 ## With Existing API Key
 
 ```bash
-API_KEY=psk_live_xxx ./docs/examples/e2e/e2e-smoke-test.sh
+API_KEY=pk_live_xxx ./docs/examples/e2e/e2e-smoke-test.sh
 ```

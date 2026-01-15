@@ -1,0 +1,11 @@
+You are GPT-5.2-Codex XHigh implementing Phase 10 repo changes.
+
+Mission:
+Apply community/maintenance policy changes to the repository.
+
+Implementation requirements:
+- Add/adjust docs: MAINTAINERS.md (if specified), triage guidance, dependency policy
+- Add GitHub configuration if needed (labels config, discussions settings notes, etc. as files where applicable)
+
+Acceptance criteria:
+- Repository communicates clearly how contributions and maintenance work.

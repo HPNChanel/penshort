@@ -2,7 +2,61 @@
 
 Penshort is a developer-focused URL shortener for API-first workflows. It is not a general-purpose consumer shortener.
 
-**Status**: Production-ready Q1 2026 — Link CRUD, redirects, analytics, webhooks, API keys, rate limiting.
+**Status**: Production-ready Q1 2026 (link CRUD, redirects, analytics, webhooks, API keys, rate limiting).
+
+## Installation
+
+### Option 1: Docker (Recommended)
+
+```bash
+# Pull latest release
+docker pull ghcr.io/hpnchanel/penshort:latest
+
+# Or pin to specific version
+docker pull ghcr.io/hpnchanel/penshort:v1.0.0
+
+# Run with required environment variables
+docker run -d \
+  -p 8080:8080 \
+  -e DATABASE_URL="postgres://user:pass@host:5432/penshort" \
+  -e REDIS_URL="redis://host:6379" \
+  ghcr.io/hpnchanel/penshort:latest
+```
+
+### Option 2: Download Binary
+
+Download pre-built binaries from [GitHub Releases](https://github.com/HPNChanel/penshort/releases):
+
+| OS | Architecture | Filename |
+|----|--------------|----------|
+| Linux | amd64 | `penshort_linux_amd64` |
+| Linux | arm64 | `penshort_linux_arm64` |
+| macOS | Intel | `penshort_darwin_amd64` |
+| macOS | Apple Silicon | `penshort_darwin_arm64` |
+| Windows | amd64 | `penshort_windows_amd64.exe` |
+
+```bash
+# Linux/macOS
+curl -Lo penshort https://github.com/HPNChanel/penshort/releases/latest/download/penshort_linux_amd64
+chmod +x penshort
+./penshort
+```
+
+### Option 3: Build from Source
+
+```bash
+# Clone repository
+git clone https://github.com/HPNChanel/penshort.git
+cd penshort
+
+# Build
+go build -o penshort ./cmd/api
+
+# Run
+./penshort
+```
+
+**Requirements:** Go 1.22+, PostgreSQL, Redis
 
 ## Quick Start
 
@@ -13,8 +67,13 @@ docker compose up -d
 # Wait for ready
 curl -fsS http://localhost:8080/readyz
 
+# Bootstrap an admin API key (local)
+export DATABASE_URL="postgres://penshort:penshort@localhost:5432/penshort?sslmode=disable"
+API_KEY=$(go run ./scripts/bootstrap-api-key.go -database-url "$DATABASE_URL" -format plain)
+
 # Create your first short link
 curl -X POST http://localhost:8080/api/v1/links \
+  -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"destination": "https://example.com"}'
 
@@ -22,63 +81,59 @@ curl -X POST http://localhost:8080/api/v1/links \
 curl -I http://localhost:8080/{short_code}
 ```
 
-📖 **[Full Quickstart Guide →](docs/quickstart.md)**
+Full quickstart: `docs/quickstart.md`
+
+## Verify
+
+Run the full verification pipeline locally:
+
+```bash
+make verify
+```
+
+This runs: doctor checks, dependency startup, migrations, lint, unit tests, integration tests, E2E smoke tests, docs validation, and security scans.
 
 ## Documentation
 
 | Topic | Description |
 |-------|-------------|
-| [Quickstart](docs/quickstart.md) | Get running in <10 minutes |
-| [Authentication](docs/authentication.md) | API key management |
-| [Link Management](docs/links.md) | Create, update, delete links |
-| [Redirects](docs/redirects.md) | Redirect behavior and caching |
-| [Analytics](docs/analytics.md) | Click statistics and breakdowns |
-| [Webhooks](docs/webhooks.md) | Signed delivery, retries, verification |
-| [Rate Limiting](docs/rate-limiting.md) | Limits, headers, handling 429s |
-| [Deployment](docs/deployment.md) | Docker/Compose production setup |
-| [API Reference](docs/api/openapi.yaml) | OpenAPI 3.0 specification |
+| `docs/quickstart.md` | Get running in under 10 minutes |
+| `docs/authentication.md` | API key management |
+| `docs/links.md` | Create, update, delete links |
+| `docs/redirects.md` | Redirect behavior and caching |
+| `docs/analytics.md` | Click statistics and breakdowns |
+| `docs/webhooks.md` | Signed delivery, retries, verification |
+| `docs/rate-limiting.md` | Limits, headers, handling 429s |
+| `docs/deployment.md` | Docker/Compose production setup |
+| `docs/api/openapi.yaml` | OpenAPI specification |
 
 ### Examples
 
-- [curl examples](docs/examples/curl/all-endpoints.sh) — All API endpoints
-- [Webhook receiver (Go)](docs/examples/webhook-receiver/) — Signature verification
-- [TypeScript client](docs/examples/clients/typescript.ts) — Minimal typed client
-
-## Project Goals
-
-- Build a specialized shortener for developer workflows: API keys, analytics, webhooks, rate limits, and expiration policies.
-- Provide reliable, cache-backed redirects with clear operational behavior.
-- Keep the system small-team friendly and easy to operate.
-
-## Stack
-
-- **Go** for the API service
-- **PostgreSQL** as the system of record
-- **Redis** for cache and rate limiting
+- `docs/examples/curl/all-endpoints.sh` - curl examples for core endpoints
+- `docs/examples/webhook-receiver/` - webhook signature verification
+- `docs/examples/e2e/` - end-to-end smoke scripts
 
 ## Features
 
-- **Link management**: create, update, disable, and redirect (301/302) with optional custom aliases
-- **Expiration policies**: time-based and optional click-count based
-- **Analytics**: click events (timestamp, referrer, user-agent, region), unique vs total, query by link and time range
-- **Webhooks**: signed delivery on click, retries with exponential backoff, delivery state tracking
-- **Authentication and rate limiting**: API keys per user/team, per-key limits, per-IP limit for redirect
-- **Ops**: health/readiness endpoints, Prometheus metrics
+- Link management: create, update, disable, and redirect (301/302) with custom aliases
+- Expiration policies: time-based expiration
+- Analytics: click events and aggregates, query by link and time range
+- Webhooks: signed delivery on click with retries and delivery tracking
+- Authentication and rate limiting: API keys per user/team, per-key limits, per-IP limit for redirect
+- Ops: health/readiness endpoints, Prometheus metrics
 
-## Roadmap
+## Stack
 
-- ✅ Milestone 1: Core redirect and link CRUD with Redis caching
-- ✅ Milestone 2: API keys and rate limiting
-- ✅ Milestone 3: Click events and analytics queries
-- ✅ Milestone 4: Webhooks with signing and retries
-- ✅ Milestone 5: Ops endpoints, monitoring basics, and delivery evidence
+- Go for the API service
+- PostgreSQL as the system of record
+- Redis for cache and rate limiting
 
-## Phase 1: Local development
+## Local Development
 
 ### Prerequisites
 - Go 1.22+
 - Docker + Docker Compose
-- `migrate` CLI (golang-migrate) for local migrations
+- migrate CLI (golang-migrate) for local migrations
 
 ### Start services (Docker)
 ```bash
@@ -97,20 +152,6 @@ cp .env.example .env
 make dev
 ```
 
-### Configuration
-Required:
-- `DATABASE_URL` (PostgreSQL connection string)
-- `REDIS_URL` (Redis connection string)
-
-Optional:
-- `APP_ENV` (default: `development`)
-- `APP_PORT` (default: `8080`)
-- `LOG_LEVEL` (default: `info`)
-- `LOG_FORMAT` (default: `json`)
-- `READ_TIMEOUT` (default: `5s`)
-- `WRITE_TIMEOUT` (default: `10s`)
-- `SHUTDOWN_TIMEOUT` (default: `30s`)
-
 ### Migrations
 ```bash
 make migrate
@@ -119,27 +160,30 @@ make migrate-down
 
 ### Testing
 ```bash
-make test
-make lint
+make test-unit
+make test-integration
+make test-e2e
 ```
 
-### Integration smoke test (local)
-```bash
-make up
-curl -fsS http://localhost:8080/healthz
-curl -fsS http://localhost:8080/readyz
-```
+### Troubleshooting
 
-### Trade-offs and TODOs (Phase 1)
-- Readiness checks validate connectivity only; schema-level checks come later.
-- Integration coverage is smoke-level; add migration + cache behavior tests in Phase 2.
-- Local migrations require the `migrate` CLI; consider a Dockerized migration target.
+| Issue | Solution |
+|-------|----------|
+| `readyz` returns 503 | Wait for Postgres/Redis to initialize |
+| Port 8080 in use | Change `APP_PORT` in docker-compose.yml |
+| Database errors | Run `docker compose down -v && docker compose up -d` |
+| Webhook target rejected for localhost | Set `WEBHOOK_ALLOW_INSECURE=true` in dev (docker-compose sets it) |
 
-## Repository docs
-- [CONTRIBUTING.md](CONTRIBUTING.md) - how to propose changes and submit PRs.
-- [SECURITY.md](SECURITY.md) - how to report security issues.
-- [GOVERNANCE.md](GOVERNANCE.md) - maintainership and decision process.
-- [docs/adr/](docs/adr/) - architecture decision records.
+## Repository Docs
+
+- `CONTRIBUTING.md` - how to propose changes and submit PRs
+- `MAINTAINERS.md` - project maintainers and expectations
+- `ROADMAP.md` - planned features and project direction
+- `SECURITY.md` - how to report security issues
+- `GOVERNANCE.md` - maintainership and decision process
+- `docs/adr/` - architecture decision records
+- `docs/dependency-policy.md` - dependency update cadence
 
 ## License
-MIT License. See [LICENSE](LICENSE).
+
+MIT License. See `LICENSE`.

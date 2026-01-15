@@ -56,6 +56,7 @@ func (h *RedirectHandler) Redirect(w http.ResponseWriter, r *http.Request) {
 		event := analytics.ClickEventPayload{
 			ShortCode:   shortCode,
 			LinkID:      link.ID,
+			OwnerID:     link.OwnerID,
 			Referrer:    analytics.SanitizeReferrer(r.Header.Get("Referer")),
 			UserAgent:   analytics.TruncateUserAgent(r.Header.Get("User-Agent")),
 			VisitorHash: analytics.GenerateVisitorHash(getClientIP(r), r.Header.Get("User-Agent"), clickedAt),

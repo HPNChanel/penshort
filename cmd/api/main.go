@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log/slog"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	_ "github.com/lib/pq"
 
 	"github.com/penshort/penshort/internal/analytics"
 	"github.com/penshort/penshort/internal/cache"
@@ -22,6 +24,7 @@ import (
 	"github.com/penshort/penshort/internal/repository"
 	"github.com/penshort/penshort/internal/server"
 	"github.com/penshort/penshort/internal/service"
+	"github.com/penshort/penshort/internal/webhook"
 )
 
 func main() {
@@ -51,6 +54,19 @@ func main() {
 	defer repo.Close()
 	logger.Info("connected to database")
 
+	// Initialize webhook database connection (stdlib sql)
+	webhookDB, err := sql.Open("postgres", cfg.DatabaseURL)
+	if err != nil {
+		logger.Error("failed to open webhook database", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	if err := webhookDB.PingContext(ctx); err != nil {
+		logger.Error("failed to ping webhook database", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	defer webhookDB.Close()
+	logger.Info("connected to webhook database")
+
 	// Initialize cache
 	cacheClient, err := cache.New(ctx, cfg.RedisURL)
 	if err != nil {
@@ -68,9 +84,11 @@ func main() {
 	metricsRecorder := metrics.NewInMemory()
 	linkService := service.NewLinkService(repo, cacheClient, cfg.BaseURL, metricsRecorder)
 	clickEventRepo := repository.NewClickEventRepository(repo)
+	webhookRepo := webhook.NewRepository(webhookDB)
 
 	// Initialize analytics publisher
 	analyticsPublisher := analytics.NewPublisher(cacheClient.Client(), logger, metricsRecorder)
+	webhookPublisher := webhook.NewPublisher(webhookRepo, logger)
 
 	// Initialize handlers
 	h := handler.New()
@@ -81,9 +99,10 @@ func main() {
 	redirectHandler := handler.NewRedirectHandler(linkService, analyticsPublisher, logger)
 	apiKeyHandler := handler.NewAPIKeyHandler(logger, repo)
 	adminHandler := handler.NewAdminHandler(repo, repo, logger)
+	webhookHandler := handler.NewWebhookHandler(webhookRepo, logger, cfg.WebhookAllowInsecure)
 
 	// Setup router
-	r := setupRouter(h, healthHandler, metricsHandler, linkHandler, analyticsHandler, redirectHandler, apiKeyHandler, adminHandler, repo, cacheClient, cfg, logger)
+	r := setupRouter(h, healthHandler, metricsHandler, linkHandler, analyticsHandler, redirectHandler, apiKeyHandler, adminHandler, webhookHandler, repo, cacheClient, cfg, logger)
 
 	// Create and run server
 	srv := server.New(
@@ -97,6 +116,7 @@ func main() {
 
 	// Start analytics worker in the background.
 	worker := analytics.NewWorker(cacheClient.Client(), clickEventRepo, logger, analytics.NewConsumerID(), metricsRecorder)
+	worker.SetWebhookPublisher(webhookPublisher)
 
 	// Register worker for graceful shutdown (called after HTTP server stops)
 	srv.OnShutdown("analytics-worker", worker.Shutdown)
@@ -107,6 +127,26 @@ func main() {
 			logger.Error("analytics worker stopped unexpectedly", "error", err)
 		}
 	}()
+
+	webhookWorker := webhook.NewWorker(webhookRepo, logger, metricsRecorder)
+	webhookCtx, webhookCancel := context.WithCancel(context.Background())
+	webhookDone := make(chan struct{})
+	go func() {
+		defer close(webhookDone)
+		if err := webhookWorker.Run(webhookCtx); err != nil && !errors.Is(err, context.Canceled) {
+			logger.Error("webhook worker stopped unexpectedly", "error", err)
+		}
+	}()
+
+	srv.OnShutdown("webhook-worker", func(ctx context.Context) error {
+		webhookCancel()
+		select {
+		case <-webhookDone:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	})
 
 	logger.Info("starting server",
 		"port", cfg.AppPort,
@@ -168,6 +208,7 @@ func setupRouter(
 	redirectHandler *handler.RedirectHandler,
 	apiKeyHandler *handler.APIKeyHandler,
 	adminHandler *handler.AdminHandler,
+	webhookHandler *handler.WebhookHandler,
 	repo *repository.Repository,
 	cacheClient *cache.Cache,
 	cfg *config.Config,
@@ -249,6 +290,19 @@ func setupRouter(
 			r.With(middleware.RequireAdmin()).Post("/", apiKeyHandler.CreateAPIKey)
 			r.With(middleware.RequireAdmin()).Delete("/{key_id}", apiKeyHandler.RevokeAPIKey)
 			r.With(middleware.RequireAdmin()).Post("/{key_id}/rotate", apiKeyHandler.RotateAPIKey)
+		})
+
+		// Webhook management (requires webhook scope)
+		r.Route("/webhooks", func(r chi.Router) {
+			r.Use(middleware.RequireWebhook())
+			r.Post("/", webhookHandler.Create)
+			r.Get("/", webhookHandler.List)
+			r.Get("/{id}", webhookHandler.Get)
+			r.Patch("/{id}", webhookHandler.Update)
+			r.Delete("/{id}", webhookHandler.Delete)
+			r.Post("/{id}/rotate-secret", webhookHandler.RotateSecret)
+			r.Get("/{id}/deliveries", webhookHandler.ListDeliveries)
+			r.Post("/{id}/deliveries/{deliveryId}/retry", webhookHandler.RetryDelivery)
 		})
 
 		// Admin routes (all require admin scope)

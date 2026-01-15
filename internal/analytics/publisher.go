@@ -35,6 +35,7 @@ const (
 type ClickEventPayload struct {
 	ShortCode   string `json:"sc"`           // short_code
 	LinkID      string `json:"lid"`          // link_id
+	OwnerID     string `json:"oid,omitempty"` // owner_id
 	Referrer    string `json:"r,omitempty"`  // referrer (truncated)
 	UserAgent   string `json:"ua,omitempty"` // user_agent (truncated)
 	VisitorHash string `json:"vh"`           // visitor_hash

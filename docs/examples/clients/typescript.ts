@@ -147,7 +147,7 @@ class PenshortClient {
 async function main() {
     const client = new PenshortClient({
         baseUrl: 'http://localhost:8080',
-        apiKey: 'psk_live_your_key_here',
+        apiKey: 'pk_live_your_key_here',
     });
 
     // Create a link

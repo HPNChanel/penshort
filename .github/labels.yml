@@ -1,0 +1,138 @@
+# Labels Configuration
+#
+# This file documents the label taxonomy for the Penshort repository.
+# To apply these labels, use the GitHub CLI or web interface.
+#
+# Usage with GitHub CLI (gh):
+#   gh label create "bug" --description "Something isn't working correctly" --color "d73a4a"
+#
+# Or use a label sync tool like github-label-sync:
+#   npx github-label-sync --labels .github/labels.yml HPNChanel/penshort
+
+# =============================================================================
+# TYPE LABELS
+# =============================================================================
+
+- name: "bug"
+  description: "Something isn't working correctly"
+  color: "d73a4a"
+
+- name: "enhancement"
+  description: "New feature or improvement"
+  color: "a2eeef"
+
+- name: "documentation"
+  description: "Documentation changes only"
+  color: "0075ca"
+
+- name: "question"
+  description: "Request for clarification"
+  color: "d876e3"
+
+# =============================================================================
+# PRIORITY LABELS
+# =============================================================================
+
+- name: "priority/critical"
+  description: "Security issue or complete breakage"
+  color: "b60205"
+
+- name: "priority/high"
+  description: "Major functionality affected"
+  color: "d93f0b"
+
+- name: "priority/medium"
+  description: "Important but not blocking"
+  color: "fbca04"
+
+- name: "priority/low"
+  description: "Nice to have, minor impact"
+  color: "0e8a16"
+
+# =============================================================================
+# STATUS LABELS
+# =============================================================================
+
+- name: "needs-triage"
+  description: "Awaiting maintainer review"
+  color: "ededed"
+
+- name: "triaged"
+  description: "Reviewed and ready for work"
+  color: "c5def5"
+
+- name: "waiting-response"
+  description: "Needs input from reporter"
+  color: "fef2c0"
+
+- name: "stale"
+  description: "No activity, may be closed"
+  color: "e6e6e6"
+
+- name: "wontfix"
+  description: "Intentionally not addressing"
+  color: "ffffff"
+
+- name: "duplicate"
+  description: "Duplicate of another issue"
+  color: "cfd3d7"
+
+# =============================================================================
+# AREA LABELS
+# =============================================================================
+
+- name: "area/api"
+  description: "API endpoints and behavior"
+  color: "1d76db"
+
+- name: "area/database"
+  description: "PostgreSQL and migrations"
+  color: "1d76db"
+
+- name: "area/cache"
+  description: "Redis caching layer"
+  color: "1d76db"
+
+- name: "area/webhooks"
+  description: "Webhook delivery and signing"
+  color: "1d76db"
+
+- name: "area/analytics"
+  description: "Click tracking and statistics"
+  color: "1d76db"
+
+- name: "area/auth"
+  description: "API keys and authentication"
+  color: "1d76db"
+
+- name: "area/ops"
+  description: "Health checks, metrics, deployment"
+  color: "1d76db"
+
+# =============================================================================
+# EFFORT LABELS
+# =============================================================================
+
+- name: "good-first-issue"
+  description: "Suitable for new contributors"
+  color: "7057ff"
+
+- name: "help-wanted"
+  description: "Open for external contribution"
+  color: "008672"
+
+- name: "complex"
+  description: "Requires deep familiarity with codebase"
+  color: "e99695"
+
+# =============================================================================
+# DEPENDENCY LABELS
+# =============================================================================
+
+- name: "dependencies"
+  description: "Dependency updates"
+  color: "0366d6"
+
+- name: "security"
+  description: "Security-related changes"
+  color: "d73a4a"

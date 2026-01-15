@@ -11,6 +11,7 @@ type ClickEvent struct {
 	// Link reference
 	ShortCode string `json:"short_code"` // Link short code
 	LinkID    string `json:"link_id"`    // FK to links.id
+	OwnerID   string `json:"owner_id,omitempty"` // Link owner id (not persisted)
 
 	// Request metadata
 	Referrer  string `json:"referrer,omitempty"`   // Referer header (truncated 500 chars)

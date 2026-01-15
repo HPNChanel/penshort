@@ -10,9 +10,10 @@ env:
   GO_VERSION: '1.22'
 
 jobs:
-  lint:
-    name: Lint
+  verify:
+    name: Verify
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,215 +23,43 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v4
-        with:
-          version: v1.55
-          args: --timeout=5m
+      - name: Install verify tools
+        run: |
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+          go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          go install github.com/zricethezav/gitleaks/v8@latest
 
-  test:
-    name: Test
+      - name: Verify
+        run: make verify
+
+  deploy-pages:
+    name: Deploy Pages
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: penshort
-          POSTGRES_PASSWORD: penshort
-          POSTGRES_DB: penshort_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+    timeout-minutes: 5
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [verify]
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Download dependencies
-        run: go mod download
-
-      - name: Run tests
-        env:
-          DATABASE_URL: postgres://penshort:penshort@localhost:5432/penshort_test?sslmode=disable
-          REDIS_URL: redis://localhost:6379
-        run: go test -v -race -coverprofile=coverage.out ./...
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          files: ./coverage.out
-          fail_ci_if_error: false
-
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - name: Download dependencies
-        run: go mod download
-
-      - name: Build
-        run: go build -o bin/api ./cmd/api
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-pages-artifact@v3
         with:
-          name: api-binary
-          path: bin/api
+          path: './site'
 
-  smoke:
-    name: Integration Smoke
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Start stack
-        run: docker compose up -d --build
-
-      - name: Wait for API readiness
-        run: |
-          for i in {1..30}; do
-            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/readyz || true)
-            if [ "$code" = "200" ]; then
-              exit 0
-            fi
-            sleep 2
-          done
-          docker compose logs api
-          exit 1
-
-      - name: Smoke health endpoints
-        run: |
-          curl -fsS http://localhost:8080/healthz > /dev/null
-          curl -fsS http://localhost:8080/readyz > /dev/null
-
-      - name: Readyz fails when Redis is down
-        run: |
-          docker compose stop redis
-          sleep 2
-          code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/readyz || true)
-          if [ "$code" != "503" ]; then
-            echo "expected 503 when redis down, got $code"
-            docker compose logs api
-            exit 1
-          fi
-          docker compose start redis
-          for i in {1..15}; do
-            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/readyz || true)
-            if [ "$code" = "200" ]; then
-              break
-            fi
-            sleep 2
-          done
-          if [ "$code" != "200" ]; then
-            echo "redis did not recover for readyz check"
-            docker compose logs api
-            exit 1
-          fi
-
-      - name: Readyz fails when Postgres is down
-        run: |
-          docker compose stop postgres
-          sleep 2
-          code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/readyz || true)
-          if [ "$code" != "503" ]; then
-            echo "expected 503 when postgres down, got $code"
-            docker compose logs api
-            exit 1
-          fi
-          docker compose start postgres
-
-      - name: Tear down
-        if: always()
-        run: docker compose down -v
-
-  security:
-    name: Security Scan
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Required for gitleaks
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-
-      # === Secrets Scanning ===
-      - name: Run gitleaks (secrets detection)
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
-
-      # === Go Vulnerability Check ===
-      - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
-
-      - name: Run govulncheck
-        run: govulncheck ./...
-
-      # === Filesystem Vulnerability Scan ===
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '1'
-          ignore-unfixed: true
-
-      # === Static Security Analysis ===
-      - name: Run gosec
-        uses: securego/gosec@master
-        with:
-          args: -exclude-dir=testdata ./...
-
-  # === Container Image Scanning (on main branch only) ===
-  container-scan:
-    name: Container Scan
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    needs: [build]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Build Docker image
-        run: docker build -t penshort:${{ github.sha }} .
-
-      - name: Run Trivy container scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'penshort:${{ github.sha }}'
-          format: 'table'
-          exit-code: '1'
-          ignore-unfixed: true
-          severity: 'CRITICAL,HIGH'
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

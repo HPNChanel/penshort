@@ -11,7 +11,7 @@ import (
 	"github.com/penshort/penshort/internal/testutil"
 )
 
-func TestRepository_CreateAndGetLink(t *testing.T) {
+func TestIntegrationRepository_CreateAndGetLink(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepository(t, ctx)
 
@@ -53,7 +53,7 @@ func TestRepository_CreateAndGetLink(t *testing.T) {
 	}
 }
 
-func TestRepository_UpdateLink(t *testing.T) {
+func TestIntegrationRepository_UpdateLink(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepository(t, ctx)
 
@@ -95,7 +95,7 @@ func TestRepository_UpdateLink(t *testing.T) {
 	}
 }
 
-func TestRepository_DeleteLink(t *testing.T) {
+func TestIntegrationRepository_DeleteLink(t *testing.T) {
 	ctx := context.Background()
 	repo := newTestRepository(t, ctx)
 
@@ -115,6 +115,9 @@ func TestRepository_DeleteLink(t *testing.T) {
 
 func newTestRepository(t *testing.T, ctx context.Context) *Repository {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping repository integration tests in short mode")
+	}
 
 	dbURL := testutil.RequireEnv(t, "DATABASE_URL")
 	repo, err := New(ctx, dbURL)

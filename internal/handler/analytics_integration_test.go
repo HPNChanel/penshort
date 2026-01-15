@@ -22,7 +22,10 @@ import (
 	"github.com/penshort/penshort/internal/testutil"
 )
 
-func TestAnalyticsIngestAndQuery(t *testing.T) {
+func TestIntegrationAnalyticsIngestAndQuery(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration tests in short mode")
+	}
 	ctx := context.Background()
 	dbURL := testutil.RequireEnv(t, "DATABASE_URL")
 	redisURL := testutil.RequireEnv(t, "REDIS_URL")

@@ -78,7 +78,7 @@ Penshort is a **developer-focused URL shortener** optimized for API-first workfl
 | **Format** | `t={timestamp},v1={signature}` |
 | **Clock skew** | ±5 minutes tolerance |
 | **Retry policy** | Exponential backoff: 1s, 2s, 4s, 8s, 16s (5 attempts max) |
-| **States** | `pending`, `delivered`, `failed`, `dead_letter` |
+| **States** | `pending`, `success`, `failed`, `exhausted` |
 
 **API Endpoints**: `POST/GET/PATCH/DELETE /api/v1/webhooks`
 
@@ -86,7 +86,7 @@ Penshort is a **developer-focused URL shortener** optimized for API-first workfl
 
 | Aspect | Specification |
 |--------|---------------|
-| **API Key format** | `psk_live_{32_random_chars}` (production) / `psk_test_{32_random_chars}` (test) |
+| **API Key format** | `pk_live_{6_hex}_{32_hex}` (production) / `pk_test_{6_hex}_{32_hex}` (test) |
 | **Key storage** | Only prefix + bcrypt hash stored; raw key shown once at creation |
 | **Rate limit (API)** | Default 100 req/s per API key; configurable |
 | **Rate limit (redirect)** | Optional IP-based: 1000 req/min |

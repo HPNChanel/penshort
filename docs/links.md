@@ -20,10 +20,10 @@ curl -X POST http://localhost:8080/api/v1/links \
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `destination` | string | ✅ | Target URL (http/https, max 2048 chars) |
-| `alias` | string | ❌ | Custom short code (3-50 chars, alphanumeric + hyphen) |
-| `redirect_type` | int | ❌ | 301 (permanent) or 302 (temporary, default) |
-| `expires_at` | string | ❌ | Expiration time (ISO8601) |
+| `destination` | string | Yes | Target URL (http/https, max 2048 chars) |
+| `alias` | string | No | Custom short code (3-50 chars, alphanumeric + hyphen) |
+| `redirect_type` | int | No | 301 (permanent) or 302 (temporary, default) |
+| `expires_at` | string | No | Expiration time (RFC3339) |
 
 ### Response
 
@@ -110,14 +110,14 @@ curl -X DELETE -H "Authorization: Bearer $API_KEY" \
   http://localhost:8080/api/v1/links/{id}
 ```
 
-Deletion is **soft** — the link returns 410 Gone on redirect.
+Deletion is soft; redirects will return 404.
 
 ## Link Status
 
 | Status | Description |
 |--------|-------------|
 | `active` | Link is working |
-| `expired` | Past `expires_at` or click limit reached |
+| `expired` | Past `expires_at` |
 | `disabled` | Manually disabled via `enabled: false` |
 
 ## Error Codes
@@ -126,7 +126,7 @@ Deletion is **soft** — the link returns 410 Gone on redirect.
 |------|------|-------------|
 | `INVALID_JSON` | 400 | Request body is not valid JSON |
 | `INVALID_DESTINATION` | 400 | URL is malformed or not http/https |
-| `INVALID_ALIAS` | 400 | Alias format invalid (must be 3-50 chars, alphanumeric + hyphen) |
+| `INVALID_ALIAS` | 400 | Alias format invalid (3-50 chars, alphanumeric + hyphen) |
 | `INVALID_REDIRECT_TYPE` | 400 | Redirect type must be 301 or 302 |
 | `ALIAS_TAKEN` | 409 | Alias already in use |
 | `URL_TOO_LONG` | 400 | Destination exceeds 2048 characters |
@@ -139,7 +139,7 @@ Deletion is **soft** — the link returns 410 Gone on redirect.
 
 | Type | Use Case |
 |------|----------|
-| **302** (default) | Tracking links, temporary campaigns, A/B testing |
-| **301** | Permanent URL migrations, SEO juice transfer |
+| 302 (default) | Tracking links, temporary campaigns, A/B testing |
+| 301 | Permanent URL migrations, SEO transfer |
 
-> ⚠️ Browsers cache 301 redirects aggressively. Use 302 if you might change the destination.
+Browsers cache 301 redirects aggressively. Use 302 if you might change the destination.

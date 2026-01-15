@@ -9,7 +9,7 @@ import (
 )
 
 // Test401Unauthorized verifies the auth error response format.
-func Test401Unauthorized(t *testing.T) {
+func TestIntegration401Unauthorized(t *testing.T) {
 	rec := httptest.NewRecorder()
 	writeAuthError(rec)
 
@@ -34,7 +34,7 @@ func Test401Unauthorized(t *testing.T) {
 }
 
 // Test403Forbidden verifies the forbidden error format.
-func Test403Forbidden(t *testing.T) {
+func TestIntegration403Forbidden(t *testing.T) {
 	rec := httptest.NewRecorder()
 	writeScopeError(rec, http.StatusForbidden, "FORBIDDEN", "Insufficient permissions")
 
@@ -53,7 +53,7 @@ func Test403Forbidden(t *testing.T) {
 }
 
 // TestExtractAPIKey tests API key extraction from headers.
-func TestExtractAPIKey(t *testing.T) {
+func TestIntegrationExtractAPIKey(t *testing.T) {
 	testCases := []struct {
 		name       string
 		authHeader string
@@ -106,7 +106,7 @@ func TestExtractAPIKey(t *testing.T) {
 }
 
 // TestGetClientIP verifies IP extraction from various headers.
-func TestGetClientIP(t *testing.T) {
+func TestIntegrationGetClientIP(t *testing.T) {
 	testCases := []struct {
 		name        string
 		xff         string

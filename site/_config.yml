@@ -1,0 +1,26 @@
+title: Penshort
+description: Developer-focused URL shortener for API-first workflows
+remote_theme: pages-themes/minimal@v0.2.0
+plugins:
+  - jekyll-remote-theme
+
+# Enable GitHub Pages markdown rendering
+markdown: kramdown
+highlighter: rouge
+
+# Base URL for GitHub Pages
+baseurl: "/penshort"
+url: "https://hpnchanel.github.io"
+
+# Default layout
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default
+
+# Exclude from build
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - README.md

@@ -1,0 +1,72 @@
+name: Stale Issue Handler
+
+on:
+  schedule:
+    # Run daily at 00:00 UTC
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          # Issue configuration
+          stale-issue-message: |
+            This issue has been automatically marked as stale because it has not had recent activity.
+            
+            If this issue is still relevant:
+            - Comment with an update or additional information
+            - Remove the `stale` label
+            
+            If no activity occurs within the next 7 days, this issue will be closed automatically.
+            You can always reopen it later if needed.
+          
+          close-issue-message: |
+            This issue has been automatically closed due to inactivity.
+            
+            If you believe this issue is still relevant, please:
+            1. Reopen this issue with a comment explaining why it's still needed
+            2. Provide any additional context that might help
+            
+            Thank you for contributing to Penshort!
+          
+          stale-issue-label: "stale"
+          exempt-issue-labels: "priority/critical,priority/high,security,good-first-issue,help-wanted"
+          days-before-issue-stale: 30
+          days-before-issue-close: 7
+          
+          # PR configuration
+          stale-pr-message: |
+            This pull request has been automatically marked as stale because it has not had recent activity.
+            
+            If you're still working on this:
+            - Push new commits or comment with an update
+            - Remove the `stale` label
+            
+            If no activity occurs within the next 14 days, this PR will be closed automatically.
+          
+          close-pr-message: |
+            This pull request has been automatically closed due to inactivity.
+            
+            If you'd like to continue this work:
+            1. Reopen this PR
+            2. Rebase on the latest `main` branch
+            3. Comment with your plan to complete it
+            
+            Thank you for contributing to Penshort!
+          
+          stale-pr-label: "stale"
+          exempt-pr-labels: "priority/critical,priority/high,security"
+          days-before-pr-stale: 45
+          days-before-pr-close: 14
+          
+          # General configuration
+          operations-per-run: 30
+          ascending: true
+          remove-stale-when-updated: true

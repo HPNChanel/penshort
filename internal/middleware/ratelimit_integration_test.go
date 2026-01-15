@@ -16,7 +16,7 @@ import (
 
 // TestRateLimitConcurrency verifies rate limiting under concurrent load.
 // This test requires Redis to be running.
-func TestRateLimitConcurrency(t *testing.T) {
+func TestIntegrationRateLimitConcurrency(t *testing.T) {
 	ctx := context.Background()
 
 	// Skip if Redis not available
@@ -76,7 +76,7 @@ func TestRateLimitConcurrency(t *testing.T) {
 }
 
 // TestIPRateLimitConcurrency verifies IP-based rate limiting concurrency.
-func TestIPRateLimitConcurrency(t *testing.T) {
+func TestIntegrationIPRateLimitConcurrency(t *testing.T) {
 	ctx := context.Background()
 
 	redisURL := "redis://localhost:6379"
@@ -119,7 +119,7 @@ func TestIPRateLimitConcurrency(t *testing.T) {
 }
 
 // TestRateLimitHeaders verifies rate limit headers are set correctly.
-func TestRateLimitHeaders(t *testing.T) {
+func TestIntegrationRateLimitHeaders(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Simulate setting rate limit headers
 		setRateLimitHeaders(w, 60, 45, r.Context().Deadline())
@@ -141,7 +141,7 @@ func TestRateLimitHeaders(t *testing.T) {
 }
 
 // Test429Response verifies the rate limit error response format.
-func Test429Response(t *testing.T) {
+func TestIntegration429Response(t *testing.T) {
 	rec := httptest.NewRecorder()
 	writeRateLimitError(rec, 5*1e9) // 5 seconds in nanoseconds
 
@@ -160,7 +160,7 @@ func Test429Response(t *testing.T) {
 }
 
 // TestTierConfigs verifies tier configuration is correct.
-func TestTierConfigs(t *testing.T) {
+func TestIntegrationTierConfigs(t *testing.T) {
 	tests := []struct {
 		tier    string
 		wantRPM int

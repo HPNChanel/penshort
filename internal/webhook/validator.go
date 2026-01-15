@@ -22,6 +22,11 @@ var (
 	ErrEmptyHost = errors.New("URL must have a host")
 )
 
+// ValidationOptions configures webhook URL validation behavior.
+type ValidationOptions struct {
+	AllowInsecure bool
+}
+
 // BlockedCIDRs contains private/internal IP ranges.
 var BlockedCIDRs = []string{
 	"10.0.0.0/8",
@@ -49,28 +54,40 @@ func init() {
 // ValidateTargetURL checks webhook URL for security issues.
 // It enforces HTTPS, blocks private IPs, and prevents SSRF attacks.
 func ValidateTargetURL(targetURL string) error {
+	return ValidateTargetURLWithOptions(targetURL, ValidationOptions{})
+}
+
+// ValidateTargetURLWithOptions checks webhook URL with configurable strictness.
+func ValidateTargetURLWithOptions(targetURL string, opts ValidationOptions) error {
 	parsed, err := url.Parse(targetURL)
 	if err != nil {
 		return ErrInvalidURL
 	}
 
-	// 1. HTTPS only
-	if parsed.Scheme != "https" {
-		return ErrInvalidScheme
-	}
-
-	// 2. Must have a host
+	// Must have a host
 	host := parsed.Hostname()
 	if host == "" {
 		return ErrEmptyHost
 	}
 
-	// 3. No localhost/loopback hostnames
+	if opts.AllowInsecure {
+		if parsed.Scheme != "https" && parsed.Scheme != "http" {
+			return ErrInvalidScheme
+		}
+		return nil
+	}
+
+	// HTTPS only
+	if parsed.Scheme != "https" {
+		return ErrInvalidScheme
+	}
+
+	// No localhost/loopback hostnames
 	if isLocalhostHostname(host) {
 		return ErrLocalhostBlocked
 	}
 
-	// 4. Resolve and check against blocked CIDRs
+	// Resolve and check against blocked CIDRs
 	ips, err := net.LookupIP(host)
 	if err != nil {
 		// DNS resolution failed - could be invalid domain
@@ -84,7 +101,7 @@ func ValidateTargetURL(targetURL string) error {
 		}
 	}
 
-	// 5. Default port only (443 for HTTPS)
+	// Default port only (443 for HTTPS)
 	if port := parsed.Port(); port != "" && port != "443" {
 		return ErrInvalidPort
 	}

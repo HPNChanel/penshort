@@ -1,4 +1,4 @@
-Penshort - Specialized URL Shortener for Developers (Go + PostgreSQL + Redis)
+Penshort -   (Go + PostgreSQL + Redis)
 
 ### About project
 

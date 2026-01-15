@@ -13,6 +13,7 @@ services:
       - APP_PORT=8080
       - DATABASE_URL=postgres://penshort:penshort@postgres:5432/penshort?sslmode=disable
       - REDIS_URL=redis://redis:6379
+      - WEBHOOK_ALLOW_INSECURE=true
       - LOG_LEVEL=debug
       - LOG_FORMAT=text
     depends_on:
@@ -20,6 +21,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - .:/app
       - go_modules:/go/pkg/mod

@@ -68,6 +68,44 @@ func TestValidateTargetURL(t *testing.T) {
 	}
 }
 
+func TestValidateTargetURL_AllowInsecure(t *testing.T) {
+	tests := []struct {
+		name    string
+		url     string
+		wantErr error
+	}{
+		{
+			name:    "http allowed in insecure mode",
+			url:     "http://localhost:8080/webhook",
+			wantErr: nil,
+		},
+		{
+			name:    "localhost allowed in insecure mode",
+			url:     "http://127.0.0.1:8080/webhook",
+			wantErr: nil,
+		},
+		{
+			name:    "non-standard port allowed in insecure mode",
+			url:     "https://example.com:8443/webhook",
+			wantErr: nil,
+		},
+		{
+			name:    "unsupported scheme still blocked",
+			url:     "ftp://example.com/webhook",
+			wantErr: ErrInvalidScheme,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateTargetURLWithOptions(tt.url, ValidationOptions{AllowInsecure: true})
+			if err != tt.wantErr {
+				t.Errorf("ValidateTargetURLWithOptions(%q) error = %v, want %v", tt.url, err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestIsBlockedIP(t *testing.T) {
 	tests := []struct {
 		name    string

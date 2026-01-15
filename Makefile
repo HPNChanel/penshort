@@ -1,4 +1,33 @@
-.PHONY: up down test lint migrate migrate-down seed build clean dev logs
+.PHONY: setup doctor up down down-clean logs dev
+.PHONY: migrate migrate-down migrate-create seed
+.PHONY: test test-unit test-integration test-contract test-e2e test-bench bench
+.PHONY: lint fmt security test-security docs-check
+.PHONY: verify verify-full build build-prod docker-build clean deps tidy help
+
+# ==================== Environment ====================
+
+## Diagnose environment issues
+
+doctor:
+	@chmod +x ./scripts/doctor.sh 2>/dev/null || true
+	@./scripts/doctor.sh
+
+## One-time setup (download dependencies)
+setup:
+	go mod download
+	@echo "Dependencies downloaded."
+	@echo ""
+	@echo "Required tools for verify:"
+	@echo "  go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
+	@echo "  go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest"
+	@echo "  go install golang.org/x/vuln/cmd/govulncheck@latest"
+	@echo "  go install github.com/securego/gosec/v2/cmd/gosec@latest"
+	@echo "  go install github.com/zricethezav/gitleaks/v8@latest"
+	@echo ""
+	@echo "Optional tools:"
+	@echo "  go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
+	@echo "  go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest"
+	@echo "  go install golang.org/x/vuln/cmd/govulncheck@latest"
 
 # ==================== Development ====================
 
@@ -7,8 +36,13 @@ up:
 	docker compose up -d
 
 ## Stop all services
+
 down:
 	docker compose down
+
+## Stop all services and remove volumes
+down-clean:
+	docker compose down -v
 
 ## View logs
 logs:
@@ -24,9 +58,65 @@ dev:
 test:
 	go test -v -race -coverprofile=coverage.out ./...
 
+## Run unit tests only (fast, no Docker required)
+test-unit:
+	go test -v -race -short -coverprofile=coverage.out ./...
+
+## Run integration tests (requires Docker services)
+test-integration:
+	go test -v -race -tags=integration -run Integration ./...
+
+## Run contract tests (OpenAPI schema validation)
+test-contract:
+	@if [ -d "internal/contract" ]; then \
+		go test -v -tags=contract ./internal/contract/...; \
+	else \
+		echo "No contract tests found. Skipping."; \
+	fi
+
+## Run end-to-end tests (full stack)
+test-e2e:
+	@chmod +x ./scripts/run-e2e.sh 2>/dev/null || true
+	@./scripts/run-e2e.sh
+
+## Run performance benchmarks
+test-bench:
+	@if [ -d "internal/benchmark" ]; then \
+		go test -v -tags=bench -bench=. -benchmem ./internal/benchmark/...; \
+	else \
+		echo "No benchmark tests found. Skipping."; \
+	fi
+
+## Run performance benchmarks (alias)
+bench: test-bench
+
+## Run security checks (secrets + dependencies + SAST)
+security:
+	@chmod +x ./scripts/security.sh 2>/dev/null || true
+	@./scripts/security.sh
+
+## Run security checks (alias)
+test-security: security
+
+## Validate documentation examples
+docs-check:
+	@chmod +x ./scripts/validate-docs.sh 2>/dev/null || true
+	@./scripts/validate-docs.sh
+
 ## Run tests with coverage report
 test-coverage: test
 	go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report: coverage.html"
+
+# ==================== Verification ====================
+
+## Full verification pipeline (run this before submitting PRs)
+verify:
+	@chmod +x ./scripts/verify.sh 2>/dev/null || true
+	@./scripts/verify.sh
+
+## Full verification including E2E (alias)
+verify-full: verify
 
 # ==================== Code Quality ====================
 
@@ -94,15 +184,33 @@ help:
 	@echo ""
 	@echo "Usage: make [target]"
 	@echo ""
+	@echo "Environment:"
+	@echo "  doctor        Diagnose environment issues"
+	@echo "  setup         One-time setup (download dependencies)"
+	@echo ""
 	@echo "Development:"
 	@echo "  up            Start all services (Docker Compose)"
 	@echo "  down          Stop all services"
+	@echo "  down-clean    Stop all services and remove volumes"
 	@echo "  logs          View API logs"
 	@echo "  dev           Run API locally (without Docker)"
 	@echo ""
 	@echo "Testing:"
 	@echo "  test          Run all tests with race detector"
-	@echo "  test-coverage Generate HTML coverage report"
+	@echo "  test-unit     Run unit tests only (no Docker)"
+	@echo "  test-integration  Run integration tests"
+	@echo "  test-contract     Run contract tests"
+	@echo "  test-e2e          Run end-to-end tests"
+	@echo "  test-bench        Run performance benchmarks"
+	@echo "  bench             Run performance benchmarks"
+	@echo "  test-security     Run security checks"
+	@echo "  security          Run security checks"
+	@echo "  docs-check        Validate documentation examples"
+	@echo "  test-coverage     Generate HTML coverage report"
+	@echo ""
+	@echo "Verification:"
+	@echo "  verify        Full verification pipeline (before PRs)"
+	@echo "  verify-full   Full verification including E2E"
 	@echo ""
 	@echo "Code Quality:"
 	@echo "  lint          Run golangci-lint"

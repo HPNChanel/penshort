@@ -24,15 +24,17 @@ func getAuthContext(ctx context.Context) *model.AuthContext {
 
 // WebhookHandler handles webhook management endpoints.
 type WebhookHandler struct {
-	repo   *webhook.Repository
-	logger *slog.Logger
+	repo           *webhook.Repository
+	logger         *slog.Logger
+	allowInsecure  bool
 }
 
 // NewWebhookHandler creates a new webhook handler.
-func NewWebhookHandler(repo *webhook.Repository, logger *slog.Logger) *WebhookHandler {
+func NewWebhookHandler(repo *webhook.Repository, logger *slog.Logger, allowInsecure bool) *WebhookHandler {
 	return &WebhookHandler{
-		repo:   repo,
-		logger: logger.With("handler", "webhook"),
+		repo:          repo,
+		logger:        logger.With("handler", "webhook"),
+		allowInsecure: allowInsecure,
 	}
 }
 
@@ -67,7 +69,7 @@ func (h *WebhookHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate target URL
-	if err := webhook.ValidateTargetURL(req.TargetURL); err != nil {
+	if err := webhook.ValidateTargetURLWithOptions(req.TargetURL, webhook.ValidationOptions{AllowInsecure: h.allowInsecure}); err != nil {
 		writeJSON(w, http.StatusBadRequest, dto.ErrorResponse{
 			Error: err.Error(),
 			Code:  "INVALID_URL",
@@ -291,7 +293,7 @@ func (h *WebhookHandler) Update(w http.ResponseWriter, r *http.Request) {
 		endpoint.Description = *req.Description
 	}
 	if req.TargetURL != nil {
-		if err := webhook.ValidateTargetURL(*req.TargetURL); err != nil {
+		if err := webhook.ValidateTargetURLWithOptions(*req.TargetURL, webhook.ValidationOptions{AllowInsecure: h.allowInsecure}); err != nil {
 			writeJSON(w, http.StatusBadRequest, dto.ErrorResponse{
 				Error: err.Error(),
 				Code:  "INVALID_URL",

@@ -47,6 +47,9 @@ type Config struct {
 
 	// Request body size limit in bytes (default 1MB)
 	MaxRequestBodySize int64 `env:"MAX_REQUEST_BODY_SIZE" envDefault:"1048576"`
+
+	// Webhooks
+	WebhookAllowInsecure bool `env:"WEBHOOK_ALLOW_INSECURE" envDefault:"false"`
 }
 
 // IsDevelopment returns true if running in development mode.

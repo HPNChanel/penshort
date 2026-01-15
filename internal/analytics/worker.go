@@ -45,6 +45,11 @@ type Repository interface {
 	UpdateDailyStats(ctx context.Context, events []*model.ClickEvent) error
 }
 
+// WebhookPublisher creates webhook deliveries for click events.
+type WebhookPublisher interface {
+	PublishClickEvent(ctx context.Context, userID string, click *model.ClickEvent) error
+}
+
 // Worker processes click events from Redis stream.
 type Worker struct {
 	redis           *redis.Client
@@ -61,6 +66,7 @@ type Worker struct {
 	claimStartID    string
 	lastClaim       time.Time
 	lastMetrics     time.Time
+	webhookPublisher WebhookPublisher
 
 	started  bool
 	draining bool
@@ -88,6 +94,11 @@ func NewWorker(client *redis.Client, repo Repository, logger *slog.Logger, consu
 		metricsInterval: DefaultMetricsInterval,
 		claimStartID:    "0-0",
 	}
+}
+
+// SetWebhookPublisher configures the optional webhook publisher.
+func (w *Worker) SetWebhookPublisher(publisher WebhookPublisher) {
+	w.webhookPublisher = publisher
 }
 
 // Run starts the worker loop. Blocks until context is cancelled.
@@ -357,6 +368,7 @@ func (w *Worker) parseMessages(ctx context.Context, messages []redis.XMessage) (
 			EventID:     msg.ID, // Redis stream ID = idempotency key
 			ShortCode:   eventPayload.ShortCode,
 			LinkID:      eventPayload.LinkID,
+			OwnerID:     eventPayload.OwnerID,
 			Referrer:    eventPayload.Referrer,
 			UserAgent:   eventPayload.UserAgent,
 			VisitorHash: eventPayload.VisitorHash,
@@ -458,6 +470,14 @@ func (w *Worker) processBatch(ctx context.Context, events []*model.ClickEvent) e
 		return fmt.Errorf("update daily stats: %w", err)
 	}
 
+	if err := w.publishWebhooks(ctx, events); err != nil {
+		w.logger.Error("failed to publish webhooks",
+			"batch_size", len(events),
+			"error", err,
+		)
+		return fmt.Errorf("publish webhooks: %w", err)
+	}
+
 	w.logger.Info("batch processed",
 		"events_count", len(events),
 		"duration_ms", float64(time.Since(start).Microseconds())/1000,
@@ -470,6 +490,21 @@ func (w *Worker) processBatch(ctx context.Context, events []*model.ClickEvent) e
 		w.metrics.ObserveAnalyticsIngestLag(time.Since(event.ClickedAt))
 	}
 
+	return nil
+}
+
+func (w *Worker) publishWebhooks(ctx context.Context, events []*model.ClickEvent) error {
+	if w.webhookPublisher == nil {
+		return nil
+	}
+	for _, event := range events {
+		if event.OwnerID == "" {
+			continue
+		}
+		if err := w.webhookPublisher.PublishClickEvent(ctx, event.OwnerID, event); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

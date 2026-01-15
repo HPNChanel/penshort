@@ -23,7 +23,7 @@ import (
 	"github.com/penshort/penshort/internal/testutil"
 )
 
-func TestRedirect_CacheMissThenHit(t *testing.T) {
+func TestIntegrationRedirect_CacheMissThenHit(t *testing.T) {
 	ctx, _, cacheClient, recorder, svc, router := newRedirectTestEnv(t)
 
 	alias := fmt.Sprintf("cache-%d", time.Now().UnixNano())
@@ -74,7 +74,7 @@ func TestRedirect_CacheMissThenHit(t *testing.T) {
 	}
 }
 
-func TestRedirect_ExpiredLink(t *testing.T) {
+func TestIntegrationRedirect_ExpiredLink(t *testing.T) {
 	ctx, repo, cacheClient, _, _, router := newRedirectTestEnv(t)
 
 	alias := fmt.Sprintf("expired-%d", time.Now().UnixNano())
@@ -121,6 +121,9 @@ func TestRedirect_ExpiredLink(t *testing.T) {
 
 func newRedirectTestEnv(t *testing.T) (context.Context, *repository.Repository, *cache.Cache, *metrics.InMemoryRecorder, *service.LinkService, *chi.Mux) {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping integration tests in short mode")
+	}
 
 	ctx := context.Background()
 	dbURL := testutil.RequireEnv(t, "DATABASE_URL")
