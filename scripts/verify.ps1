@@ -87,6 +87,9 @@ try {
   Step "Integration tests"
   & go test -v -race -tags=integration -run Integration ./...
 
+  Step "Contract tests (OpenAPI schema)"
+  & go test -v ./tests/contract/...
+
   Step "E2E smoke tests"
   & go test -v -tags=e2e ./tests/e2e/...
 

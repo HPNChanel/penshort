@@ -57,6 +57,30 @@ make test-integration
 - `DATABASE_URL` and `REDIS_URL` set
 - Postgres and Redis running (use `make up`)
 
+## Contract Tests
+
+**Scope**: OpenAPI schema validation - verify API responses match documented spec.
+
+**Location**: `tests/contract`
+
+**Command**:
+
+```bash
+make contract  # or make test-contract
+```
+
+**What is validated**:
+- OpenAPI spec syntax and structure
+- Endpoint existence (documented paths respond)
+- Error responses match ErrorResponse schema
+- Response content-types are correct
+- Required fields present in responses
+
+**Notes**:
+- Uses `kin-openapi` library for schema validation
+- Tests skip gracefully if server not running
+- Runs in CI after integration tests
+
 ## E2E Tests
 
 **Scope**: Full HTTP flows against the running API.
@@ -138,8 +162,111 @@ make up
 make migrate
 make test-unit
 make test-integration
+make contract           # OpenAPI schema validation
 make test-e2e
 make docs-check
 make security
-make verify
+make verify             # Runs all of the above
 ```
+
+## Windows Usage (PowerShell)
+
+All scripts have PowerShell equivalents:
+
+```powershell
+# Doctor check
+.\scripts\doctor.ps1
+
+# Full verification
+.\scripts\verify.ps1
+
+# E2E tests only
+.\scripts\run-e2e.ps1
+
+# Security scans
+.\scripts\security.ps1
+
+# Docs validation
+.\scripts\validate-docs.ps1
+```
+
+> **Note**: `make` targets work on Windows with WSL2 or Git Bash. Native PowerShell users should use the scripts directly.
+
+## CI/Local Alignment
+
+CI runs exactly `make verify`. This ensures:
+
+| Guarantee | Description |
+|-----------|-------------|
+| **Identical Steps** | Same 9-step pipeline locally and in CI |
+| **Same Tool Versions** | CI installs tools at `@latest` matching local |
+| **Same Environment** | Docker Compose services match CI |
+
+If `make verify` passes locally, CI will pass.
+
+## Example HTTP Responses
+
+### Health Check (GET /healthz)
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"status":"ok"}
+```
+
+### Readiness Check (GET /readyz)
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"status":"ok","checks":{"database":"ok","redis":"ok"}}
+```
+
+### Create Link (POST /api/v1/links)
+
+```http
+HTTP/1.1 201 Created
+Content-Type: application/json
+
+{
+  "id": "01HQXY...",
+  "short_code": "abc123",
+  "destination": "https://example.com",
+  "redirect_type": 302,
+  "created_at": "2026-01-16T12:00:00Z"
+}
+```
+
+### Redirect (GET /{short_code})
+
+```http
+HTTP/1.1 302 Found
+Location: https://example.com
+X-Penshort-Link-Id: 01HQXY...
+```
+
+### Error Response (4xx/5xx)
+
+```http
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+
+{
+  "error": "validation_error",
+  "message": "destination is required",
+  "request_id": "req_01HQXY..."
+}
+```
+
+## Failure Troubleshooting
+
+| Failure | Likely Cause | Fix |
+|---------|--------------|-----|
+| `make doctor` fails | Missing tools | Run the install command shown |
+| Postgres not healthy | Port conflict | `lsof -i :5432` or change port |
+| Redis not healthy | Port conflict | `lsof -i :6379` or change port |
+| E2E webhook timeout | Firewall blocking | Check `host.docker.internal` connectivity |
+| Security scan fails | Known vulnerability | Update dependencies: `go get -u ./...` |
+

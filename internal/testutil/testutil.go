@@ -7,8 +7,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/penshort/penshort/internal/model"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -49,7 +51,7 @@ func AcquireDBLock(ctx context.Context, pool *pgxpool.Pool) (func() error, error
 
 // ResetLinksSchema drops and recreates the links schema for tests.
 func ResetLinksSchema(ctx context.Context, pool *pgxpool.Pool) error {
-	root, err := projectRoot()
+	root, err := ProjectRoot()
 	if err != nil {
 		return err
 	}
@@ -78,7 +80,7 @@ func ResetLinksSchema(ctx context.Context, pool *pgxpool.Pool) error {
 
 // ResetAnalyticsSchema drops and recreates the analytics schema for tests.
 func ResetAnalyticsSchema(ctx context.Context, pool *pgxpool.Pool) error {
-	root, err := projectRoot()
+	root, err := ProjectRoot()
 	if err != nil {
 		return err
 	}
@@ -105,12 +107,100 @@ func ResetAnalyticsSchema(ctx context.Context, pool *pgxpool.Pool) error {
 	return nil
 }
 
+// ResetAPIKeysSchema drops and recreates the api_keys schema for tests.
+func ResetAPIKeysSchema(ctx context.Context, pool *pgxpool.Pool) error {
+	root, err := ProjectRoot()
+	if err != nil {
+		return err
+	}
+
+	downPath := filepath.Join(root, "migrations", "000004_api_keys.down.sql")
+	upPath := filepath.Join(root, "migrations", "000004_api_keys.up.sql")
+
+	downSQL, err := os.ReadFile(downPath)
+	if err != nil {
+		return fmt.Errorf("read api_keys down migration: %w", err)
+	}
+	if _, err := pool.Exec(ctx, string(downSQL)); err != nil {
+		return fmt.Errorf("apply api_keys down migration: %w", err)
+	}
+
+	upSQL, err := os.ReadFile(upPath)
+	if err != nil {
+		return fmt.Errorf("read api_keys up migration: %w", err)
+	}
+	if _, err := pool.Exec(ctx, string(upSQL)); err != nil {
+		return fmt.Errorf("apply api_keys up migration: %w", err)
+	}
+
+	return nil
+}
+
+// ResetWebhooksSchema drops and recreates the webhooks schema for tests.
+func ResetWebhooksSchema(ctx context.Context, pool *pgxpool.Pool) error {
+	root, err := ProjectRoot()
+	if err != nil {
+		return err
+	}
+
+	downPath := filepath.Join(root, "migrations", "000006_webhooks.down.sql")
+	upPath := filepath.Join(root, "migrations", "000006_webhooks.up.sql")
+
+	downSQL, err := os.ReadFile(downPath)
+	if err != nil {
+		return fmt.Errorf("read webhooks down migration: %w", err)
+	}
+	if _, err := pool.Exec(ctx, string(downSQL)); err != nil {
+		return fmt.Errorf("apply webhooks down migration: %w", err)
+	}
+
+	upSQL, err := os.ReadFile(upPath)
+	if err != nil {
+		return fmt.Errorf("read webhooks up migration: %w", err)
+	}
+	if _, err := pool.Exec(ctx, string(upSQL)); err != nil {
+		return fmt.Errorf("apply webhooks up migration: %w", err)
+	}
+
+	return nil
+}
+
+// ResetUsersSchema drops and recreates the users schema for tests.
+func ResetUsersSchema(ctx context.Context, pool *pgxpool.Pool) error {
+	root, err := ProjectRoot()
+	if err != nil {
+		return err
+	}
+
+	downPath := filepath.Join(root, "migrations", "000003_users.down.sql")
+	upPath := filepath.Join(root, "migrations", "000003_users.up.sql")
+
+	downSQL, err := os.ReadFile(downPath)
+	if err != nil {
+		return fmt.Errorf("read users down migration: %w", err)
+	}
+	if _, err := pool.Exec(ctx, string(downSQL)); err != nil {
+		return fmt.Errorf("apply users down migration: %w", err)
+	}
+
+	upSQL, err := os.ReadFile(upPath)
+	if err != nil {
+		return fmt.Errorf("read users up migration: %w", err)
+	}
+	if _, err := pool.Exec(ctx, string(upSQL)); err != nil {
+		return fmt.Errorf("apply users up migration: %w", err)
+	}
+
+	return nil
+}
+
 // FlushRedis clears the current Redis database.
 func FlushRedis(ctx context.Context, client *redis.Client) error {
 	return client.FlushDB(ctx).Err()
 }
 
-func projectRoot() (string, error) {
+// ProjectRoot returns the project root directory.
+func ProjectRoot() (string, error) {
 	_, filename, _, ok := runtime.Caller(0)
 	if !ok {
 		return "", fmt.Errorf("failed to resolve testutil path")
@@ -118,3 +208,66 @@ func projectRoot() (string, error) {
 	root := filepath.Clean(filepath.Join(filepath.Dir(filename), "..", ".."))
 	return root, nil
 }
+
+// ============================================================================
+// Test Data Factories
+// ============================================================================
+
+// NewTestLink creates a test link with sensible defaults.
+func NewTestLink(t testing.TB, shortCode string) *model.Link {
+	t.Helper()
+	now := time.Now().UTC()
+	return &model.Link{
+		ID:           fmt.Sprintf("link-%d", now.UnixNano()),
+		ShortCode:    shortCode,
+		Destination:  "https://example.com/" + shortCode,
+		RedirectType: model.RedirectTemporary,
+		OwnerID:      "test-user",
+		Enabled:      true,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+}
+
+// NewTestLinkWithExpiry creates a test link with an expiry time.
+func NewTestLinkWithExpiry(t testing.TB, shortCode string, expiresAt time.Time) *model.Link {
+	t.Helper()
+	link := NewTestLink(t, shortCode)
+	link.ExpiresAt = &expiresAt
+	return link
+}
+
+// NewTestAPIKey creates a test API key with sensible defaults.
+func NewTestAPIKey(t testing.TB, userID string) *model.APIKey {
+	t.Helper()
+	now := time.Now().UTC()
+	return &model.APIKey{
+		ID:            fmt.Sprintf("key-%d", now.UnixNano()),
+		UserID:        userID,
+		KeyHash:       fmt.Sprintf("hash-%d", now.UnixNano()),
+		KeyPrefix:     "pk_test_",
+		Scopes:        []string{model.ScopeRead, model.ScopeWrite},
+		RateLimitTier: model.TierFree,
+		Name:          "Test Key",
+		CreatedAt:     now,
+	}
+}
+
+// NewTestAPIKeyWithTier creates a test API key with a specific tier.
+func NewTestAPIKeyWithTier(t testing.TB, userID string, tier string) *model.APIKey {
+	t.Helper()
+	key := NewTestAPIKey(t, userID)
+	key.RateLimitTier = tier
+	return key
+}
+
+// UniqueShortCode generates a unique short code for tests.
+func UniqueShortCode(prefix string) string {
+	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
+}
+
+// UniqueID generates a unique ID for tests.
+func UniqueID(prefix string) string {
+	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
+}
+

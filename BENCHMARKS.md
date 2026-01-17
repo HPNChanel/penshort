@@ -4,96 +4,131 @@
 
 ---
 
-## Methodology
+## Tools
 
-### Test Environment
+| Tool | Purpose | When to Use |
+|------|---------|-------------|
+| **k6** (primary) | Load testing, scenario-based benchmarks | Structured testing, CI integration |
+| **hey** (ad-hoc) | Quick HTTP benchmarking | Development, quick checks |
+| **go test -bench** | Micro-benchmarks | Unit-level performance |
+
+### Why k6?
+
+1. **Scenario flexibility**: Model cache hit/miss, rate limit ramp-up
+2. **Native thresholds**: Built-in pass/fail gates (no text parsing)
+3. **JSON output**: CI artifact integration, trend analysis
+4. **Windows support**: Native binary for cross-platform use
+
+---
+
+## Quick Start
+
+```bash
+# Install k6 (macOS)
+brew install k6
+
+# Install k6 (Windows)
+winget install k6 --source winget
+
+# Run redirect latency benchmark
+make bench-redirect
+
+# Run all benchmarks
+make bench-all
+```
+
+See `bench/README.md` for detailed instructions.
+
+---
+
+## Benchmark Suite
+
+| Benchmark | Target Metric | Threshold |
+|-----------|---------------|-----------|
+| Redirect (cache hit) | p95 latency | <25ms |
+| Redirect (cache miss) | p95 latency | <100ms |
+| API create link | p95 latency | <200ms |
+| Rate limit rejection | p95 latency | <20ms |
+| Worker drain | throughput | >1000 events/sec |
+
+### Running Benchmarks
+
+```bash
+# Individual benchmarks
+make bench-redirect      # Redirect latency (cache hit/miss)
+make bench-api           # API create link throughput
+make bench-ratelimit     # Rate limiting stress test
+make bench-worker        # Analytics worker throughput
+
+# All benchmarks
+make bench-all
+
+# Windows (PowerShell)
+.\bench\run-benchmark.ps1 -Script redirect-latency.js
+```
+
+---
+
+## Test Environment
 
 | Component | Specification |
 |-----------|---------------|
 | Hardware  | Reference: 4 vCPU, 8GB RAM |
-| OS        | Linux (Ubuntu 22.04 LTS) |
+| OS        | Linux (Ubuntu 22.04 LTS) / Docker |
 | Database  | PostgreSQL 16 |
 | Cache     | Redis 7 |
 | Network   | Localhost (eliminate network variance) |
-
-### Tools
-
-- **Load testing**: [`hey`](https://github.com/rakyll/hey)
-- **Profiling**: `go tool pprof`
-- **Tracing**: OpenTelemetry (optional)
-
-### Procedure
-
-1. Start fresh Docker Compose stack: `docker compose up -d`
-2. Run migrations: `make migrate`
-3. Create benchmark link via API
-4. Warm-up: 100 requests at low concurrency
-5. Main run: 10,000 requests at 100 concurrent connections
-6. Record results
 
 ---
 
 ## Performance Targets
 
-### Redirect Latency (Primary Metric)
+### Redirect Latency
 
-| Percentile | Target | Critical |
-|------------|--------|----------|
-| p50        | < 10ms | < 25ms   |
-| p95        | < 25ms | < 50ms   |
-| p99        | < 50ms | < 100ms  |
+| Scenario | p50 | p95 | p99 |
+|----------|-----|-----|-----|
+| Cache hit | <5ms | <15ms | <30ms |
+| Cache miss | <25ms | <75ms | <150ms |
 
 ### Throughput
 
 | Metric | Target |
 |--------|--------|
-| Requests/sec (cached) | > 5,000 |
-| Requests/sec (cache miss) | > 1,000 |
+| Redirects/sec (cached) | >5,000 |
+| Redirects/sec (uncached) | >1,000 |
+| API creates/sec | >100 |
 
-### Analytics Ingest
+### Analytics Worker
 
 | Metric | Target |
 |--------|--------|
-| Queue drain rate | > 1,000 events/sec |
-| Ingest lag (p99) | < 30 seconds |
+| Queue drain rate | >1,000 events/sec |
+| Ingest lag (p99) | <30 seconds |
 
 ---
 
-## Benchmark Results
+## CI Integration
 
-### Redirect Latency
+| Trigger | Scope | Failure Mode |
+|---------|-------|--------------|
+| Nightly (2 AM UTC) | Full suite | Informational |
+| Release branch | Full suite | Quality gate |
+| PR with `benchmark` label | Subset | Informational |
 
-| Date | Version | p50 | p95 | p99 | RPS | Notes |
-|------|---------|-----|-----|-----|-----|-------|
-| _YYYY-MM-DD_ | _vX.Y.Z_ | _Xms_ | _Xms_ | _Xms_ | _X_ | _Initial baseline_ |
+**Threshold philosophy**: Detect **regression** (20% tolerance), not absolute targets.
 
-### How to Run
-
-```bash
-# Ensure stack is running
-docker compose up -d
-
-# Create test link
-curl -X POST http://localhost:8080/api/v1/links \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"short_code": "bench", "destination": "https://example.com"}'
-
-# Run benchmark
-./scripts/benchmark/redirect_latency.sh bench
-```
+See `.github/workflows/benchmark-nightly.yml` for workflow definition.
 
 ---
 
-## Reproducing Results
+## Threshold Methodology
 
-To ensure reproducibility:
+1. **Collect baseline**: Run benchmarks 30 times over 1 week
+2. **Calculate median**: Use median of p95 values
+3. **Set threshold**: `threshold = median × 1.2` (20% tolerance)
+4. **Monitor regression**: Alert if >20% slower than baseline
 
-1. **Use identical hardware** or document deviations
-2. **Cold start**: Stop all services, then restart
-3. **Consistent data**: Use fresh database with only benchmark link
-4. **Multiple runs**: Report average of 3 runs
-5. **Document**: Record exact commit hash and configuration
+Thresholds are defined in `bench/scripts/util/thresholds.js`.
 
 ---
 
@@ -102,10 +137,7 @@ To ensure reproducibility:
 ### CPU Profile
 
 ```bash
-# Start with profiling enabled
 go run -race ./cmd/api -cpuprofile=cpu.prof
-
-# Analyze
 go tool pprof cpu.prof
 ```
 
@@ -123,7 +155,7 @@ go tool pprof heap.prof
 | Area | Issue | Mitigation |
 |------|-------|------------|
 | Cache miss | PostgreSQL lookup | Pre-warm cache on startup |
-| High cardinality | Large link table | Use database indexes, partitioning |
+| High cardinality | Large link table | Database indexes, partitioning |
 | Analytics burst | Redis stream growth | Monitor queue depth, scale workers |
 
 ---
@@ -132,4 +164,5 @@ go tool pprof heap.prof
 
 | Date | Change |
 |------|--------|
+| 2026-01-17 | Migrated to k6 benchmark suite, added CI integration |
 | 2026-01-13 | Initial benchmarks skeleton created |

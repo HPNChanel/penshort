@@ -1,6 +1,6 @@
 .PHONY: setup doctor up down down-clean logs dev
 .PHONY: migrate migrate-down migrate-create seed
-.PHONY: test test-unit test-integration test-contract test-e2e test-bench bench
+.PHONY: test test-unit test-integration test-integration-raw test-contract test-e2e test-bench bench
 .PHONY: lint fmt security test-security docs-check
 .PHONY: verify verify-full build build-prod docker-build clean deps tidy help
 
@@ -62,17 +62,25 @@ test:
 test-unit:
 	go test -v -race -short -coverprofile=coverage.out ./...
 
-## Run integration tests (requires Docker services)
+## Run integration tests (starts Docker services automatically)
 test-integration:
+	@chmod +x ./scripts/run-integration.sh 2>/dev/null || true
+	@./scripts/run-integration.sh
+
+## Run integration tests without auto-starting services
+test-integration-raw:
 	go test -v -race -tags=integration -run Integration ./...
 
 ## Run contract tests (OpenAPI schema validation)
 test-contract:
-	@if [ -d "internal/contract" ]; then \
-		go test -v -tags=contract ./internal/contract/...; \
+	@if [ -d "tests/contract" ]; then \
+		go test -v ./tests/contract/...; \
 	else \
 		echo "No contract tests found. Skipping."; \
 	fi
+
+## Run contract tests (alias)
+contract: test-contract
 
 ## Run end-to-end tests (full stack)
 test-e2e:
@@ -84,11 +92,51 @@ test-bench:
 	@if [ -d "internal/benchmark" ]; then \
 		go test -v -tags=bench -bench=. -benchmem ./internal/benchmark/...; \
 	else \
-		echo "No benchmark tests found. Skipping."; \
+		echo "No Go benchmark tests found. Skipping."; \
 	fi
 
 ## Run performance benchmarks (alias)
 bench: test-bench
+
+## Run k6 redirect latency benchmark
+bench-redirect:
+	@if command -v k6 &> /dev/null; then \
+		k6 run --env BASE_URL=http://localhost:8080 bench/scripts/redirect-latency.js; \
+	else \
+		echo "k6 not installed. Install: https://k6.io/docs/get-started/installation/"; \
+		exit 1; \
+	fi
+
+## Run k6 API throughput benchmark
+bench-api:
+	@if command -v k6 &> /dev/null; then \
+		k6 run --env BASE_URL=http://localhost:8080 --env API_KEY=$$API_KEY bench/scripts/api-create-link.js; \
+	else \
+		echo "k6 not installed. Install: https://k6.io/docs/get-started/installation/"; \
+		exit 1; \
+	fi
+
+## Run k6 rate limiting benchmark
+bench-ratelimit:
+	@if command -v k6 &> /dev/null; then \
+		k6 run --env BASE_URL=http://localhost:8080 bench/scripts/redirect-ratelimit.js; \
+	else \
+		echo "k6 not installed. Install: https://k6.io/docs/get-started/installation/"; \
+		exit 1; \
+	fi
+
+## Run k6 worker ingest benchmark
+bench-worker:
+	@if command -v k6 &> /dev/null; then \
+		k6 run --env BASE_URL=http://localhost:8080 bench/scripts/worker-ingest.js; \
+	else \
+		echo "k6 not installed. Install: https://k6.io/docs/get-started/installation/"; \
+		exit 1; \
+	fi
+
+## Run all k6 benchmarks
+bench-all: bench-redirect bench-api bench-ratelimit bench-worker
+
 
 ## Run security checks (secrets + dependencies + SAST)
 security:
@@ -198,16 +246,23 @@ help:
 	@echo "Testing:"
 	@echo "  test          Run all tests with race detector"
 	@echo "  test-unit     Run unit tests only (no Docker)"
-	@echo "  test-integration  Run integration tests"
+	@echo "  test-integration  Run integration tests (auto-starts Docker)"
+	@echo "  test-integration-raw  Run integration tests (no auto-start)"
 	@echo "  test-contract     Run contract tests"
 	@echo "  test-e2e          Run end-to-end tests"
-	@echo "  test-bench        Run performance benchmarks"
-	@echo "  bench             Run performance benchmarks"
+	@echo "  test-bench        Run Go performance benchmarks"
 	@echo "  test-security     Run security checks"
-	@echo "  security          Run security checks"
 	@echo "  docs-check        Validate documentation examples"
 	@echo "  test-coverage     Generate HTML coverage report"
 	@echo ""
+	@echo "Benchmarks (k6):"
+	@echo "  bench-redirect    Redirect latency (cache hit/miss)"
+	@echo "  bench-api         API create link throughput"
+	@echo "  bench-ratelimit   Rate limiting stress test"
+	@echo "  bench-worker      Worker ingest throughput"
+	@echo "  bench-all         Run all k6 benchmarks"
+	@echo ""
+
 	@echo "Verification:"
 	@echo "  verify        Full verification pipeline (before PRs)"
 	@echo "  verify-full   Full verification including E2E"

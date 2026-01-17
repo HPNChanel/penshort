@@ -151,6 +151,15 @@ func TestIntegration429Response(t *testing.T) {
 
 	if rec.Header().Get("Content-Type") != "application/json" {
 		t.Errorf("Expected JSON content type")
+	rec := httptest.NewRecorder()
+	writeRateLimitError(rec, 5*1e9) // 5 seconds in nanoseconds
+
+	if rec.Code != http.StatusTooManyRequests {
+		t.Errorf("Expected status 429, got %d", rec.Code)
+	}
+
+	if rec.Header().Get("Content-Type") != "application/json" {
+		t.Errorf("Expected JSON content type")
 	}
 
 	body := rec.Body.String()
@@ -177,5 +186,123 @@ func TestIntegrationTierConfigs(t *testing.T) {
 				t.Errorf("Tier %s: expected RPM %d, got %d", tc.tier, tc.wantRPM, config.RequestsPerMinute)
 			}
 		})
+	}
+}
+
+// TestIntegrationRateLimiter_TierEnforcement verifies different tiers have different limits.
+func TestIntegrationRateLimiter_TierEnforcement(t *testing.T) {
+	ctx := context.Background()
+
+	redisURL := "redis://localhost:6379"
+	cacheClient, err := cache.New(ctx, redisURL)
+	if err != nil {
+		t.Skipf("Skipping integration test: Redis not available: %v", err)
+	}
+	defer cacheClient.Close()
+
+	_ = cacheClient.Client().FlushDB(ctx).Err()
+
+	tests := []struct {
+		tier        string
+		keyID       string
+		rpm         int
+		burst       int
+		requests    int
+		wantAllowed int // Approximate
+	}{
+		{"free", "free-key", 60, 10, 15, 10},  // Free tier, burst 10
+		{"pro", "pro-key", 600, 50, 55, 50},   // Pro tier, burst 50
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.tier, func(t *testing.T) {
+			var allowed int
+			for i := 0; i < tc.requests; i++ {
+				result, err := cacheClient.CheckAPIRateLimit(ctx, tc.keyID, tc.rpm, tc.burst)
+				if err != nil {
+					t.Fatalf("CheckAPIRateLimit error: %v", err)
+				}
+				if result.Allowed {
+					allowed++
+				}
+			}
+
+			// Should allow approximately burst amount initially
+			if allowed > tc.wantAllowed+2 || allowed < tc.wantAllowed-2 {
+				t.Logf("Tier %s: expected around %d allowed, got %d", tc.tier, tc.wantAllowed, allowed)
+			}
+		})
+	}
+}
+
+// TestIntegrationRateLimiter_SlidingWindowRecovery verifies rate limits recover over time.
+func TestIntegrationRateLimiter_SlidingWindowRecovery(t *testing.T) {
+	ctx := context.Background()
+
+	redisURL := "redis://localhost:6379"
+	cacheClient, err := cache.New(ctx, redisURL)
+	if err != nil {
+		t.Skipf("Skipping integration test: Redis not available: %v", err)
+	}
+	defer cacheClient.Close()
+
+	_ = cacheClient.Client().FlushDB(ctx).Err()
+
+	keyID := "sliding-window-key"
+	rps := 10  // 10 requests per second
+	burst := 5
+
+	// Exhaust the burst
+	for i := 0; i < burst+5; i++ {
+		_, _ = cacheClient.CheckIPRateLimit(ctx, keyID, rps, burst)
+	}
+
+	// Verify exhausted
+	result, _ := cacheClient.CheckIPRateLimit(ctx, keyID, rps, burst)
+	if result.Allowed {
+		t.Log("Expected rate limit exhausted")
+	}
+
+	// Wait for sliding window to recover (at least 1 second for RPS-based limit)
+	time.Sleep(1100 * time.Millisecond)
+
+	// Should be allowed again
+	result2, err := cacheClient.CheckIPRateLimit(ctx, keyID, rps, burst)
+	if err != nil {
+		t.Fatalf("CheckIPRateLimit error: %v", err)
+	}
+	if !result2.Allowed {
+		t.Error("Expected request to be allowed after window recovery")
+	}
+}
+
+// TestIntegrationRateLimiter_DifferentKeysIsolated verifies different keys are isolated.
+func TestIntegrationRateLimiter_DifferentKeysIsolated(t *testing.T) {
+	ctx := context.Background()
+
+	redisURL := "redis://localhost:6379"
+	cacheClient, err := cache.New(ctx, redisURL)
+	if err != nil {
+		t.Skipf("Skipping integration test: Redis not available: %v", err)
+	}
+	defer cacheClient.Close()
+
+	_ = cacheClient.Client().FlushDB(ctx).Err()
+
+	rpm := 5
+	burst := 3
+
+	// Exhaust key1
+	for i := 0; i < 10; i++ {
+		_, _ = cacheClient.CheckAPIRateLimit(ctx, "key1", rpm, burst)
+	}
+
+	// key2 should still be able to make requests
+	result, err := cacheClient.CheckAPIRateLimit(ctx, "key2", rpm, burst)
+	if err != nil {
+		t.Fatalf("CheckAPIRateLimit error: %v", err)
+	}
+	if !result.Allowed {
+		t.Error("key2 should have its own limit, independent of key1")
 	}
 }

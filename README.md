@@ -169,10 +169,18 @@ make test-e2e
 
 | Issue | Solution |
 |-------|----------|
-| `readyz` returns 503 | Wait for Postgres/Redis to initialize |
-| Port 8080 in use | Change `APP_PORT` in docker-compose.yml |
-| Database errors | Run `docker compose down -v && docker compose up -d` |
-| Webhook target rejected for localhost | Set `WEBHOOK_ALLOW_INSECURE=true` in dev (docker-compose sets it) |
+| `readyz` returns 503 | Wait for Postgres/Redis to initialize, check `docker compose logs` |
+| Port 8080 in use | Change `APP_PORT` in docker-compose.yml or stop conflicting process |
+| Port 5432 in use | Stop local Postgres: `sudo systemctl stop postgresql` or change port |
+| Database connection errors | Run `docker compose down -v && docker compose up -d` |
+| Webhook target rejected | Set `WEBHOOK_ALLOW_INSECURE=true` in dev (docker-compose sets this) |
+| `make doctor` fails | Run the install command shown in the error message |
+| `migrate` command not found | `go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest` |
+| `golangci-lint` not found | `go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest` |
+| E2E tests hang | Check webhook receiver can reach `host.docker.internal` |
+| Security scan fails | Update dependencies: `go get -u ./... && go mod tidy` |
+
+**Windows users**: Use PowerShell scripts directly (`.\scripts\verify.ps1`) or run via WSL2/Git Bash.
 
 ## Repository Docs
 

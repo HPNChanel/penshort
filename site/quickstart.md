@@ -47,9 +47,16 @@ curl -X POST http://localhost:8080/api/v1/links \
 ## Step 5: Test the Redirect
 
 ```bash
+# Replace 'abc123' with your actual short_code from the response
 curl -I http://localhost:8080/abc123
-# HTTP/1.1 302 Found
-# Location: https://example.com
+```
+
+Expected response:
+
+```http
+HTTP/1.1 302 Found
+Location: https://example.com
+X-Penshort-Link-Id: 01HQXY...
 ```
 
 ## Next Steps

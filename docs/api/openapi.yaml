@@ -1001,7 +1001,7 @@ components:
           properties:
             key:
               type: string
-              description: Shown only once. Format: pk_live_* or pk_test_*
+              description: "Shown only once. Format: pk_live_* or pk_test_*"
 
     ApiKeyListResponse:
       type: object

@@ -353,3 +353,224 @@ func doJSON(t *testing.T, method, url, apiKey string, body any, out any) int {
 
 	return resp.StatusCode
 }
+
+// TestE2ELinkExpiry validates that expired links return 410 Gone or 404.
+func TestE2ELinkExpiry(t *testing.T) {
+	baseURL := envOrDefault("PENSHORT_BASE_URL", "http://localhost:8080")
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		t.Fatalf("DATABASE_URL is required for e2e tests")
+	}
+
+	bootstrapKey := bootstrapAdminKey(t, dbURL)
+	testKey := createAPIKey(t, baseURL, bootstrapKey)
+
+	// Create link with 3-second expiry
+	expiresAt := time.Now().Add(3 * time.Second)
+	alias := fmt.Sprintf("e2e-expiry-%d", time.Now().UnixNano())
+
+	payload := map[string]any{
+		"destination":   "https://example.com/expiry-test",
+		"alias":         alias,
+		"redirect_type": 302,
+		"expires_at":    expiresAt.Format(time.RFC3339),
+	}
+
+	var link linkResponse
+	status := doJSON(t, http.MethodPost, baseURL+"/api/v1/links", testKey, payload, &link)
+	if status != http.StatusCreated {
+		t.Fatalf("expected 201 from link create, got %d", status)
+	}
+
+	// Verify redirect works BEFORE expiry
+	assertRedirect(t, baseURL, link.ShortCode, "https://example.com/expiry-test")
+
+	// Wait for expiry
+	time.Sleep(4 * time.Second)
+
+	// Verify link is expired (should return 410 Gone or 404 Not Found)
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/%s", baseURL, link.ShortCode), nil)
+	if err != nil {
+		t.Fatalf("create expired link request: %v", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("expired link request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Expired links should return 410 Gone or 404 Not Found
+	if resp.StatusCode != http.StatusGone && resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 410 or 404 for expired link, got %d", resp.StatusCode)
+	}
+}
+
+// TestE2ERateLimiting validates that rate limiting returns 429 with proper headers.
+func TestE2ERateLimiting(t *testing.T) {
+	baseURL := envOrDefault("PENSHORT_BASE_URL", "http://localhost:8080")
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		t.Fatalf("DATABASE_URL is required for e2e tests")
+	}
+
+	// Create a free-tier API key (60 RPM, 10 burst)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	repo, err := repository.New(ctx, dbURL)
+	if err != nil {
+		t.Fatalf("connect db: %v", err)
+	}
+	defer repo.Close()
+
+	if err := ensureUser(ctx, repo, systemUserID, systemEmail); err != nil {
+		t.Fatalf("ensure user: %v", err)
+	}
+
+	generated, err := auth.GenerateAPIKey(auth.EnvLive)
+	if err != nil {
+		t.Fatalf("generate api key: %v", err)
+	}
+
+	apiKey := &model.APIKey{
+		ID:            ulid.Make().String(),
+		UserID:        systemUserID,
+		KeyHash:       generated.Hash,
+		KeyPrefix:     generated.Prefix,
+		Scopes:        []string{model.ScopeRead},
+		RateLimitTier: model.TierFree, // Free tier: 60 RPM, burst 10
+		Name:          "e2e-ratelimit-test",
+		CreatedAt:     time.Now().UTC(),
+	}
+
+	if err := repo.CreateAPIKey(ctx, apiKey); err != nil {
+		t.Fatalf("create free-tier api key: %v", err)
+	}
+
+	testKey := generated.Plaintext
+
+	// Send requests until we hit rate limit
+	client := &http.Client{Timeout: 10 * time.Second}
+	var rateLimited bool
+	var lastResp *http.Response
+
+	// Free tier has burst of 10, try 20 requests rapidly
+	for i := 0; i < 20; i++ {
+		req, err := http.NewRequest(http.MethodGet, baseURL+"/api/v1/links", nil)
+		if err != nil {
+			t.Fatalf("create request: %v", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+testKey)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			rateLimited = true
+			lastResp = resp
+			break
+		}
+		resp.Body.Close()
+	}
+
+	if !rateLimited {
+		t.Fatalf("expected 429 rate limit after burst, but never hit rate limit")
+	}
+
+	defer lastResp.Body.Close()
+
+	// Verify rate limit headers
+	limitHeader := lastResp.Header.Get("X-RateLimit-Limit")
+	remainingHeader := lastResp.Header.Get("X-RateLimit-Remaining")
+	retryAfterHeader := lastResp.Header.Get("Retry-After")
+
+	if limitHeader == "" {
+		t.Error("missing X-RateLimit-Limit header on 429 response")
+	}
+	if remainingHeader != "0" {
+		t.Errorf("expected X-RateLimit-Remaining=0, got %s", remainingHeader)
+	}
+	if retryAfterHeader == "" {
+		t.Log("Retry-After header not present (optional but recommended)")
+	}
+
+	// Verify response body
+	var errResp map[string]any
+	if err := json.NewDecoder(lastResp.Body).Decode(&errResp); err != nil {
+		t.Fatalf("decode 429 response: %v", err)
+	}
+
+	if errResp["error"] == nil {
+		t.Error("429 response missing 'error' field")
+	}
+}
+
+// TestE2ENoSecretsInLogs validates that API keys are not leaked in responses.
+// This test validates that error responses don't echo back sensitive credentials.
+func TestE2ENoSecretsInLogs(t *testing.T) {
+	baseURL := envOrDefault("PENSHORT_BASE_URL", "http://localhost:8080")
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		t.Fatalf("DATABASE_URL is required for e2e tests")
+	}
+
+	bootstrapKey := bootstrapAdminKey(t, dbURL)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	// Test that error responses don't leak the Authorization header value
+	testKey := "pk_live_fake_" + strings.Repeat("x", 32)
+	req, err := http.NewRequest(http.MethodGet, baseURL+"/api/v1/links", nil)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+testKey)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	bodyStr := string(body)
+
+	// The fake API key should NEVER appear in error responses
+	if strings.Contains(bodyStr, testKey) {
+		t.Error("SECURITY: Error response leaked Authorization header value")
+	}
+
+	// The bootstrap key should never be echoed back
+	if strings.Contains(bodyStr, bootstrapKey) {
+		t.Error("SECURITY: Response contains the bootstrap API key")
+	}
+
+	// Test with a valid key - responses should not include the key itself
+	req2, err := http.NewRequest(http.MethodGet, baseURL+"/api/v1/links", nil)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+	req2.Header.Set("Authorization", "Bearer "+bootstrapKey)
+
+	resp2, err := client.Do(req2)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	body2, _ := io.ReadAll(resp2.Body)
+	resp2.Body.Close()
+
+	// The full API key should never appear in successful responses
+	if strings.Contains(string(body2), bootstrapKey) {
+		t.Error("SECURITY: Successful response echoed back the API key")
+	}
+}

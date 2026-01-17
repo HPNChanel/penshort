@@ -84,6 +84,9 @@ make test-unit
 step "Integration tests"
 make test-integration
 
+step "Contract tests (OpenAPI schema)"
+make test-contract
+
 step "E2E smoke tests"
 E2E_SKIP_COMPOSE=1 make test-e2e
 

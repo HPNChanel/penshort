@@ -42,6 +42,17 @@ curl -X POST http://localhost:8080/api/v1/links \
 - [Quickstart Guide](quickstart.md)
 - [API Overview](api-overview.md)
 - [Security](security.md)
+- [Testing & Verification](https://github.com/HPNChanel/penshort/blob/main/docs/testing/TEST_STRATEGY.md)
+
+## Verification
+
+Run the full verification pipeline locally before contributing:
+
+```bash
+make verify
+```
+
+This validates: environment, dependencies, migrations, lint, tests, E2E, docs, and security scans.
 
 ## Stack
 

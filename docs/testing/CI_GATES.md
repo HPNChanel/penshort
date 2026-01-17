@@ -2,7 +2,7 @@
 
 > Status: Production
 > Owner: Penshort Maintainers
-> Last Updated: 2026-01-15
+> Last Updated: 2026-01-16
 
 ## Overview
 
@@ -26,18 +26,73 @@ make verify
 ```
 
 **Includes**:
-1. Doctor checks
-2. Docker Compose dependencies
-3. Migrations
-4. Lint
-5. Unit tests
-6. Integration tests
-7. E2E smoke tests
-8. Docs examples validation
-9. Security scans
+
+| Step | Description | Failure Impact |
+|------|-------------|----------------|
+| 1. Doctor | Check prerequisites | Blocks all subsequent steps |
+| 2. Dependencies | Start Postgres/Redis | Database tests will fail |
+| 3. Migrations | Apply schema changes | Integration tests will fail |
+| 4. Lint | Code quality checks | PR rejected |
+| 5. Unit tests | Fast isolated tests | PR rejected |
+| 6. Integration tests | Database/cache tests | PR rejected |
+| 7. Contract tests | OpenAPI schema validation | PR rejected |
+| 8. E2E tests | Full HTTP flows | PR rejected |
+| 9. Docs validation | Example verification | PR rejected |
+| 10. Security scans | gosec/gitleaks/govulncheck | PR rejected |
 
 **Failure Action**: PR blocked, requires fix.
 
 ## GitHub Pages Deploy
 
 Runs only on `main` branch pushes and publishes the `site/` directory.
+
+## CI Troubleshooting
+
+### Common Failures
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `make verify` timeout | Docker service slow | Increase timeout or check Docker health |
+| `migrate` fails | Migration syntax error | Check migration files for errors |
+| `golangci-lint` fails | Lint violations | Run `make lint` locally, fix issues |
+| `go test` fails | Test assertion failed | Run specific test locally to debug |
+| `gosec` fails | Security issue detected | Review gosec output, fix or add exclusion |
+| `gitleaks` fails | Secret detected | Remove secret, rotate if exposed |
+| `govulncheck` fails | Vulnerable dependency | Run `go get -u ./...` and test |
+
+### Reproduce CI Locally
+
+```bash
+# Exact CI reproduction
+make verify
+
+# If failures occur, run steps individually:
+make doctor
+make up
+make migrate
+make lint
+make test-unit
+make test-integration
+make test-e2e
+make docs-check
+make security
+```
+
+### CI Environment Details
+
+| Setting | Value |
+|---------|-------|
+| Runner | `ubuntu-latest` |
+| Go Version | 1.22 |
+| Timeout | 30 minutes |
+| Docker | Compose v2 |
+
+## Adding New Gates
+
+New CI gates should:
+
+1. Have a corresponding `make` target
+2. Work locally without CI-specific config
+3. Be documented in this file
+4. Have clear pass/fail criteria
+
